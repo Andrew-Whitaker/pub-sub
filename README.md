@@ -1,2 +1,17 @@
 # pub-sub
 Simple Pub Sub implementation with ZooKeeper
+
+## Getting Started
+
+### Install ZooKeeper lcoally on your machine
+1. Verify that you have Java installed
+2. Follow the instructions: [Getting Started](https://zookeeper.apache.org/doc/current/zookeeperStarted.html) You only need a single server. The only snag you may experience is trying to create the /var/lib/zookeeper folder that ZooKeeper will put its data into. You'll have to make the file with sudo, or you can just change the *dataDir* parameter to any path you want.
+3. Start your cluster: ```bin/zkServer.sh start```
+
+* Can stop your cluster with: ```bin/zkServer.sh stop```
+
+### Install kazoo Package for Python
+```pip install kazoo```
+
+### Run the small client Python Script
+Run ```python src/client.py``` from within the root directory of the git repo.
