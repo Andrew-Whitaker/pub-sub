@@ -3,10 +3,8 @@ import threading
 import time
 
 def encodeMessage(value: int):
-    return str(value).encode('utf8')
+    return str(value).encode('utf-8')
 
-def encodeMessage(value: int):
-    return str(value).encode('utf8')
 
 def runClient(id: int):
     print("Starting Cl" + str(id))
@@ -31,7 +29,7 @@ def runClient(id: int):
         zk.set(myPath, encodeMessage(i))
         if zk.exists(theirPath):
             data, stat = zk.get(theirPath)
-            print("Cl" + str(id) +" read " + data.decode('utf8') + " from: " + theirPath)
+            print("Cl" + str(id) +" read " + data.decode('utf-8') + " from: " + theirPath)
         time.sleep(1)
 
     zk.stop()
