@@ -22,10 +22,11 @@ class threadedXMLRPCServer(ThreadingMixIn, SimpleXMLRPCServer):
 class PubSubBroker:
 
     def __init__(self, my_address, zk_hosts):
+        self.my_znode = ""
         self.my_address = my_address
         self.zk_hosts = zk_hosts
         self.zk_client = KazooClient(hosts=makeHostsString(zk_hosts))
-        self.brokers = [] # empty list of ChordNodes for Brokers
+        self.brokers = [] 
 
     # RPC Methods ==========================
     
@@ -47,21 +48,31 @@ class PubSubBroker:
         self.join_cluster()
 
     def join_cluster(self):
-        
+
+        # The callback that runs when the watch is triggered by a change to the registry 
+        # TODO self.brokers list needs to be updated safely 
         def dynamic_watch(watch_information): 
-            broker_list = self.zk_client.get_children("/brokerRegistry", watch=dynamic_watch)
-            print("Watch Update - Brokers: {}".format(", ".join(broker_list)))
+            self.brokers = []
+            # Notice that we need to reregister ourself
+            nodes = self.zk_client.get_children("/brokerRegistry", watch=dynamic_watch)            
+            for b in nodes:
+                v, _ = self.zk_client.get("/brokerRegistry/{}".format(b))
+                addr = v.decode("utf-8").strip()
+                self.brokers.append(addr)
+            formatted = ["{} ({})".format(x,y) for x, y in zip(nodes, self.brokers)]
+            print("Broker Watch: {}".format(", ".join(formatted)))            
         
         try:
+            # TODO does this ordering of operations make sense
+
             # start the client
             self.zk_client.start()
             self.zk_client.ensure_path("/brokerRegistry")
             
             # create a watch and a new node for this broker
             self.zk_client.get_children("/brokerRegistry", watch=dynamic_watch)
-
-            # TODO does this need to set the address or something
-            self.zk_client.create("/brokerRegistry/broker", ephemeral=True, sequence=True)
+            self.my_znode = self.zk_client.create("/brokerRegistry/broker", ephemeral=True, sequence=True)
+            self.zk_client.set(self.my_znode, self.my_address.encode("utf-8"))
 
         except Exception:
             pass
