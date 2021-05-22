@@ -1,4 +1,6 @@
 import threading
+import sys
+import os
 from xmlrpc.server import SimpleXMLRPCServer
 from xmlrpc.server import SimpleXMLRPCRequestHandler
 from socketserver import ThreadingMixIn
@@ -42,36 +44,73 @@ class PubSubBroker:
     # Control Methods ========================
 
     def serve(self):
-        
-        # Probably needs to be some sort of control loop
-        # so that Broker can react to changes 
         self.join_cluster()
 
-        pass
-
     def join_cluster(self):
-    
+        
+        def dynamic_watch(watch_information): 
+            broker_list = self.zk_client.get_children("/brokerRegistry", watch=dynamic_watch)
+            print("Watch Update - Brokers: {}".format(", ".join(broker_list)))
+        
         try:
+            # start the client
             self.zk_client.start()
             self.zk_client.ensure_path("/brokerRegistry")
+            
+            # create a watch and a new node for this broker
+            self.zk_client.get_children("/brokerRegistry", watch=dynamic_watch)
 
-            self.zk_client.set()
+            # TODO does this need to set the address or something
+            self.zk_client.create("/brokerRegistry/broker", ephemeral=True, sequence=True)
 
         except Exception:
             pass
 
 
-
 if __name__ == "__main__":
+    if len(sys.argv) != 3:
+        print("Usage: python pubsubBroker.py <configuration_path> <zk_config>") 
+        exit(1)
 
-    # Get My Url
-    my_url = 'localhost:3000' # read from command line or file
+    print("Starting PubSub Broker...")
+
+    # Load up the the Broker configuration  
+    # TODO: Yml or something would be cool if we feel like it
+    my_url = 'localhost:3000' 
+    broker_config_path = sys.argv[1]
+    zk_config_path = sys.argv[2]
+
+    exists = os.path.isfile(broker_config_path) 
+    if exists:
+        with open(broker_config_path, "r") as f:
+            broker_conf_array = f.readlines()
+            my_url = broker_conf_array[0].strip() # Smh
+
     my_ip_addr = my_url.split(":")[0]
     my_port = int(my_url.split(":")[1])
 
-    # Get ZooKeeper Config file and find ZK host addresses
+    # Display the loaded configuration
+    print("Address:\t{}".format(my_url))
+
+    # Load up the Supporting Zookeeper Configuration
+    zk_client_port = ""
     zk_hosts = [] 
-    
+    exists = os.path.isfile(zk_config_path) 
+    if exists:
+        with open(zk_config_path, "r") as f:
+            zk_conf_array = f.readlines()
+            for l in zk_conf_array:
+                if l.startswith("server."): 
+                    fst, snd = l.split("=")
+                    cleaned = snd.split(":", 1)[0].strip() # TODO Smh
+                    zk_hosts.append(cleaned)
+                if l.startswith("clientPort"):
+                    fst, snd = l.split("=")
+                    zk_client_port = snd.strip()
+
+    zk_hosts = ["{}:{}".format(z, zk_client_port) for z in zk_hosts]
+    print("Zookeepers:\t{}".format(", ".join(zk_hosts)))
+
     # Create the Broker and Spin up its RPC server
     rpc_server = threadedXMLRPCServer((my_ip_addr, my_port), requestHandler=RequestHandler)
     broker = PubSubBroker(my_url, zk_hosts)
@@ -83,11 +122,11 @@ if __name__ == "__main__":
     rpc_server.register_function(broker.last_index, "broker.last_index")
     rpc_server.register_function(broker.consume, "broker.consume")
 
-    print("Started successfully.")
-    print("Accepting requests. (Halt program to stop.)")
+    print("Started successfully... accepting requests. (Halt program to stop.)")
 
-    # Control 
-    threading.Thread(target=broker.serve) 
+    # Control - TODO should this happen some other time
+    service_thread = threading.Thread(target=broker.serve) 
+    service_thread.start()
 
     # Start Broker Server
     rpc_server.serve_forever()
