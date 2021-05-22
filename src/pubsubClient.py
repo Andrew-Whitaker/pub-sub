@@ -6,6 +6,8 @@ class PubSubClient:
     def __init__(self, zk_hosts):
         self.zk_hosts = zk_hosts
 
+        self.BrokerClient
+
     def create_topic(self):
         pass
 
@@ -16,6 +18,12 @@ class PubSubClient:
         pass
 
     def publish(self, topic: str, message: str):
+        # Find the right Broker
+
+        # set up RPC-client
+
+        # Send message
+
         pass
 
     def consume(self, topic: str, index: int):
