@@ -71,8 +71,7 @@ class PubSubBroker:
             
             # create a watch and a new node for this broker
             self.zk_client.get_children("/brokerRegistry", watch=dynamic_watch)
-            self.my_znode = self.zk_client.create("/brokerRegistry/broker", ephemeral=True, sequence=True)
-            self.zk_client.set(self.my_znode, self.my_address.encode("utf-8"))
+            self.my_znode = self.zk_client.create("/brokerRegistry/broker", value=self.my_address.encode("utf-8"),  ephemeral=True, sequence=True)
 
         except Exception:
             pass
