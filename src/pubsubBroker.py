@@ -6,6 +6,7 @@ from xmlrpc.server import SimpleXMLRPCRequestHandler
 from socketserver import ThreadingMixIn
 from kazoo.client import KazooClient
 import logging
+from chordNode import create_chord_ring, check_if_new_leader
 
 from zk_helpers import *
 
@@ -26,7 +27,7 @@ class PubSubBroker:
         self.my_address = my_address
         self.zk_hosts = zk_hosts
         self.zk_client = KazooClient(hosts=makeHostsString(zk_hosts))
-        self.brokers = [] 
+        self.brokers = [] # array of ChordNodes representing the ChordRing 
 
     # RPC Methods ==========================
     
@@ -52,15 +53,27 @@ class PubSubBroker:
         # The callback that runs when the watch is triggered by a change to the registry 
         # TODO self.brokers list needs to be updated safely 
         def dynamic_watch(watch_information): 
-            self.brokers = []
-            # Notice that we need to reregister ourself
+            updated_brokers = [] # array of addresses
+
+            # Notice that we need to reregister the watch
             nodes = self.zk_client.get_children("/brokerRegistry", watch=dynamic_watch)            
-            for b in nodes:
-                v, _ = self.zk_client.get("/brokerRegistry/{}".format(b))
-                addr = v.decode("utf-8").strip()
-                self.brokers.append(addr)
-            formatted = ["{} ({})".format(x,y) for x, y in zip(nodes, self.brokers)]
-            print("Broker Watch: {}".format(", ".join(formatted)))            
+            for addr in nodes:
+                # v, _ = self.zk_client.get("/brokerRegistry/{}".format(b))
+                # addr = v.decode("utf-8").strip()
+                updated_brokers.append(addr)
+
+            # build updated Chord Ring
+            updated_ring = create_chord_ring(updated_brokers)
+
+            # Check for changes that would imply that the broker should DO SOMETHING
+            # predecessor_changed = check_if_new_leader(updated_ring, self.brokers, self.my_address)
+
+            self.brokers = updated_ring
+
+            
+            formatted = ["{}".format(str(node)) for node in updated_ring]
+            print("Broker Watch: {}".format(", ".join(formatted)))
+            # print("Responsible for view change: {}".format(str(predecessor_changed)))            
         
         try:
             # TODO does this ordering of operations make sense
@@ -71,7 +84,7 @@ class PubSubBroker:
             
             # create a watch and a new node for this broker
             self.zk_client.get_children("/brokerRegistry", watch=dynamic_watch)
-            self.my_znode = self.zk_client.create("/brokerRegistry/broker", value=self.my_address.encode("utf-8"),  ephemeral=True, sequence=True)
+            self.my_znode = self.zk_client.create("/brokerRegistry/{}".format(self.my_address), value="true".encode("utf-8"), ephemeral=True)
 
         except Exception:
             pass
