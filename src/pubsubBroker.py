@@ -46,7 +46,7 @@ class PubSubBroker:
         if self.operational:
             self.data_lock.acquire()
             self.topic_data += 1
-            logging.debug("Data value: {}".format(str(self.topic_data)))
+            print("Data value: {}".format(str(self.topic_data)))
             self.data_lock.release()
             return True
         else:   
