@@ -5,6 +5,7 @@ from xmlrpc.server import SimpleXMLRPCServer
 from xmlrpc.server import SimpleXMLRPCRequestHandler
 from socketserver import ThreadingMixIn
 from kazoo.client import KazooClient
+from kazoo.client import KazooState
 import logging
 from chordNode import create_chord_ring, check_if_new_leader
 
@@ -29,10 +30,27 @@ class PubSubBroker:
         self.zk_client = KazooClient(hosts=makeHostsString(zk_hosts))
         self.brokers = [] # array of ChordNodes representing the ChordRing 
 
+        # control data
+        self.operational = False
+
+        # Topic data structures
+        # keeping it simple...it's just a single integer instead of a map
+        # of topic queues
+        self.topic_data = 0 
+        self.data_lock = threading.Lock()
+
+
     # RPC Methods ==========================
     
     def enqueue(self, topic: str, message: str):
-        pass
+        if self.operational:
+            self.data_lock.acquire()
+            self.topic_data += 1
+            logging.debug("Data value: {}".format(str(self.topic_data)))
+            self.data_lock.release()
+            return True
+        else:   
+            return False
 
     def enqueue_replica(self, topic: str, message: str, index: int):
         pass
@@ -44,6 +62,19 @@ class PubSubBroker:
         pass
 
     # Control Methods ========================
+
+    def state_change_handler(self, conn_state):
+        if conn_state == KazooState.LOST:
+            logging.warning("Kazoo Client detected a Lost state")
+            self.operational = False
+        elif conn_state == KazooState.SUSPENDED:
+            logging.warning("Kazoo Client detected a Suspended state")
+            self.operational = False
+        elif conn_state == KazooState.CONNECTED: # KazooState.CONNECTED
+            logging.warning("Kazoo Client detected a Connected state")
+            self.operational = True
+        else:
+            logging.warning("Kazoo Client detected an UNKNOWN state")
 
     def serve(self):
         self.join_cluster()
@@ -79,6 +110,7 @@ class PubSubBroker:
             # TODO does this ordering of operations make sense
 
             # start the client
+            self.zk_client.add_listener(self.state_change_handler)
             self.zk_client.start()
             self.zk_client.ensure_path("/brokerRegistry")
             
@@ -88,6 +120,7 @@ class PubSubBroker:
 
         except Exception:
             pass
+
 
 
 if __name__ == "__main__":
@@ -153,3 +186,5 @@ if __name__ == "__main__":
 
     # Start Broker Server
     rpc_server.serve_forever()
+
+    service_thread.join()

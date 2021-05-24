@@ -26,6 +26,23 @@ def create_chord_ring(brokers):
     sortChordRing(chord_ring)
     return chord_ring
 
+def find_chord_successor(key: str, chord_ring):
+    # calculate hash of key
+    id = chord_hash(key)
+
+    # Slow Linear version of finding the Identifier
+    for i in range(len(chord_ring)):
+        # Current range is (chord_ring[i], chord_ring[i+1]]
+        lower = chord_ring[i-1].hash_id
+        upper = chord_ring[i].hash_id
+        if id > lower and id <= upper:
+            return chord_ring[i]
+
+    # Exiting the for loop means that the ID didn't belong
+    # to any of the ranges we checked through. So it must belong
+    # to Node[0] => either ID <= Node[0].ID OR ID > Node[last].ID
+    return chord_ring[0]
+
 # Detect what part of the chord ring changed
 # Return Boolean if your predecessor changed.
 def check_if_new_leader(new_ring, old_ring, my_address):
