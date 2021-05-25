@@ -32,6 +32,7 @@ class PubSubBroker:
 
         # control data
         self.operational = False
+        #self.event_queue
 
         # Topic data structures
         # keeping it simple...it's just a single integer instead of a map
@@ -77,7 +78,17 @@ class PubSubBroker:
             logging.warning("Kazoo Client detected an UNKNOWN state")
 
     def serve(self):
+        # start process of joining the system
         self.join_cluster()
+
+        while True: # infinite Broker serving loop
+
+            # Wait for an event off the communication channel
+            # and respond to it
+            pass
+
+
+        
 
     def join_cluster(self):
 
@@ -149,23 +160,7 @@ if __name__ == "__main__":
     print("Address:\t{}".format(my_url))
 
     # Load up the Supporting Zookeeper Configuration
-    zk_client_port = ""
-    zk_hosts = [] 
-    exists = os.path.isfile(zk_config_path) 
-    if exists:
-        with open(zk_config_path, "r") as f:
-            zk_conf_array = f.readlines()
-            for l in zk_conf_array:
-                if l.startswith("server."): 
-                    fst, snd = l.split("=")
-                    cleaned = snd.split(":", 1)[0].strip() # TODO Smh
-                    zk_hosts.append(cleaned)
-                if l.startswith("clientPort"):
-                    fst, snd = l.split("=")
-                    zk_client_port = snd.strip()
-
-    zk_hosts = ["{}:{}".format(z, zk_client_port) for z in zk_hosts]
-    print("Zookeepers:\t{}".format(", ".join(zk_hosts)))
+    zk_hosts = get_zookeeper_hosts(zk_config_path)
 
     # Create the Broker and Spin up its RPC server
     rpc_server = threadedXMLRPCServer((my_ip_addr, my_port), requestHandler=RequestHandler)
@@ -180,11 +175,11 @@ if __name__ == "__main__":
 
     print("Started successfully... accepting requests. (Halt program to stop.)")
 
-    # Control - TODO should this happen some other time
+    # Control Broker management
     service_thread = threading.Thread(target=broker.serve) 
     service_thread.start()
 
-    # Start Broker Server
+    # Start Broker RPC Server
     rpc_server.serve_forever()
 
     service_thread.join()
