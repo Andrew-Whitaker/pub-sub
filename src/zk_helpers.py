@@ -2,6 +2,8 @@
 import sys
 import os
 
+from chordNode import *
+
 def makeHostsString(hosts):
     # In case hosts is an empty array
     if len(hosts) < 1:
@@ -9,7 +11,6 @@ def makeHostsString(hosts):
 
     # start with first host
     hostsString = hosts[0]
-
     # Append all hosts after that with comma separation
     for host in hosts[1:]:
         hostsString += ("," + host)
@@ -37,3 +38,10 @@ def get_zookeeper_hosts(config_path):
     print("Zookeepers:\t{}".format(", ".join(zk_hosts)))
     return zk_hosts
 
+
+def build_updated_chord_ring(self, zk_client):
+    # array of addresses from Broker registry
+    broker_addrs = zk_client.get_children("/brokerRegistry")            
+    
+    # build updated Chord Ring
+    return create_chord_ring(broker_addrs)

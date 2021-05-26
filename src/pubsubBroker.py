@@ -1,14 +1,16 @@
-import threading
-import sys
-import os
+import threading, queue
+import sys, os
+import logging
 from xmlrpc.server import SimpleXMLRPCServer
 from xmlrpc.server import SimpleXMLRPCRequestHandler
 from socketserver import ThreadingMixIn
 from kazoo.client import KazooClient
 from kazoo.client import KazooState
-import logging
-from chordNode import create_chord_ring, check_if_new_leader
+from kazoo.exceptions import KazooException, OperationTimeoutError
+from kazoo.protocol.paths import join
 
+from chordNode import create_chord_ring
+from event import *
 from zk_helpers import *
 
 
@@ -28,11 +30,12 @@ class PubSubBroker:
         self.my_address = my_address
         self.zk_hosts = zk_hosts
         self.zk_client = KazooClient(hosts=makeHostsString(zk_hosts))
+        self.zk_client.add_listener(self.state_change_handler)
         self.brokers = [] # array of ChordNodes representing the ChordRing 
 
-        # control data
-        self.operational = False
-        #self.event_queue
+        # Let Broker Control Functionality by responding to events
+        self.event_queue = queue.Queue()
+        self.operational = False # RPC method should/not accept requests
 
         # Topic data structures
         # keeping it simple...it's just a single integer instead of a map
@@ -67,70 +70,71 @@ class PubSubBroker:
     def state_change_handler(self, conn_state):
         if conn_state == KazooState.LOST:
             logging.warning("Kazoo Client detected a Lost state")
-            self.operational = False
+            self.event_queue.put(ControlEvent(EventType.RESTART_BROKER))
         elif conn_state == KazooState.SUSPENDED:
             logging.warning("Kazoo Client detected a Suspended state")
-            self.operational = False
+            self.event_queue.put(ControlEvent(EventType.PAUSE_OPER))
         elif conn_state == KazooState.CONNECTED: # KazooState.CONNECTED
             logging.warning("Kazoo Client detected a Connected state")
-            self.operational = True
+            self.event_queue.put(ControlEvent(EventType.RESUME_OPER))
         else:
             logging.warning("Kazoo Client detected an UNKNOWN state")
 
     def serve(self):
         # start process of joining the system
-        self.join_cluster()
+        self.event_queue.put(ControlEvent(EventType.RESTART_BROKER))
 
         while True: # infinite Broker serving loop
-
             # Wait for an event off the communication channel
             # and respond to it
-            pass
+            event = self.event_queue.get() # blocking call
 
-
+            if event.name == EventType.PAUSE_OPER:
+                pass
+            elif event.name == EventType.RESUME_OPER:
+                pass
+            elif event.name == EventType.RESTART_BROKER:
+                dt = threading.Thread(target=self.join_cluster, daemon=True)
+                dt.start()
+            elif event.name == EventType.UPDATE_TOPICS:
+                pass
+            elif event.name == EventType.VIEW_CHANGE:
+                pass
+            else:
+                logging.warning("Unknown Event detected: {}".format(event.name))
         
-
     def join_cluster(self):
 
-        # The callback that runs when the watch is triggered by a change to the registry 
-        # TODO self.brokers list needs to be updated safely 
-        def dynamic_watch(watch_information): 
-            updated_brokers = [] # array of addresses
-
-            # Notice that we need to reregister the watch
-            nodes = self.zk_client.get_children("/brokerRegistry", watch=dynamic_watch)            
-            for addr in nodes:
-                # v, _ = self.zk_client.get("/brokerRegistry/{}".format(b))
-                # addr = v.decode("utf-8").strip()
-                updated_brokers.append(addr)
-
-            # build updated Chord Ring
-            updated_ring = create_chord_ring(updated_brokers)
-
-            # Check for changes that would imply that the broker should DO SOMETHING
-            # predecessor_changed = check_if_new_leader(updated_ring, self.brokers, self.my_address)
-
-            self.brokers = updated_ring
-
-            
-            formatted = ["{}".format(str(node)) for node in updated_ring]
-            print("Broker Watch: {}".format(", ".join(formatted)))
-            # print("Responsible for view change: {}".format(str(predecessor_changed)))            
-        
         try:
-            # TODO does this ordering of operations make sense
-
             # start the client
-            self.zk_client.add_listener(self.state_change_handler)
             self.zk_client.start()
             self.zk_client.ensure_path("/brokerRegistry")
             
             # create a watch and a new node for this broker
-            self.zk_client.get_children("/brokerRegistry", watch=dynamic_watch)
+            self.zk_client.get_children("/brokerRegistry")
             self.my_znode = self.zk_client.create("/brokerRegistry/{}".format(self.my_address), value="true".encode("utf-8"), ephemeral=True)
 
-        except Exception:
-            pass
+        except Exception as e:
+            logging.warning("Join Cluster error: {}".format(e))
+            self.event_queue.put(ControlEvent(EventType.RESTART_BROKER))
+
+    def restart_broker(self):
+        pass
+
+    # # The callback that runs when the watch is triggered by a change to the registry 
+    # # TODO self.brokers list needs to be updated safely 
+    # def dynamic_watch(watch_information): 
+        
+
+    #     # Check for changes that would imply that the broker should DO SOMETHING
+    #     # predecessor_changed = check_if_new_leader(updated_ring, self.brokers, self.my_address)
+
+    #     self.brokers = updated_ring
+
+        
+    #     formatted = ["{}".format(str(node)) for node in updated_ring]
+    #     print("Broker Watch: {}".format(", ".join(formatted)))
+    #     # print("Responsible for view change: {}".format(str(predecessor_changed))) 
 
 
 
@@ -172,8 +176,6 @@ if __name__ == "__main__":
     rpc_server.register_function(broker.enqueue_replica, "broker.enqueue_replica")
     rpc_server.register_function(broker.last_index, "broker.last_index")
     rpc_server.register_function(broker.consume, "broker.consume")
-
-    print("Started successfully... accepting requests. (Halt program to stop.)")
 
     # Control Broker management
     service_thread = threading.Thread(target=broker.serve) 
