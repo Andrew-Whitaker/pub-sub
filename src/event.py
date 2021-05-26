@@ -1,12 +1,17 @@
 # event.py>
 from enum import Enum
 
+# Constants for accessing data fields out of the Control Events'
+# data dictionaries
+CHORD_RING = "ring"
+
 class EventType(Enum):
     PAUSE_OPER = 1
     RESUME_OPER = 2
     RESTART_BROKER = 3
-    UPDATE_TOPICS = 4
-    VIEW_CHANGE = 5
+    RING_UPDATE = 4
+    UPDATE_TOPICS = 5
+    VIEW_CHANGE = 6
 
 class ControlEvent():
     def __init__(self, name: EventType, data=None) -> None:

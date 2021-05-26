@@ -37,11 +37,3 @@ def get_zookeeper_hosts(config_path):
     zk_hosts = ["{}:{}".format(z, zk_client_port) for z in zk_hosts]
     print("Zookeepers:\t{}".format(", ".join(zk_hosts)))
     return zk_hosts
-
-
-def build_updated_chord_ring(self, zk_client):
-    # array of addresses from Broker registry
-    broker_addrs = zk_client.get_children("/brokerRegistry")            
-    
-    # build updated Chord Ring
-    return create_chord_ring(broker_addrs)

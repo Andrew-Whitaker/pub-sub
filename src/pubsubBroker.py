@@ -13,8 +13,9 @@ from chordNode import create_chord_ring
 from event import *
 from zk_helpers import *
 
+BROKER_REG_PATH = "/brokerRegistry"
 
-logging.basicConfig()
+logging.basicConfig(level=logging.WARNING)
 
 class RequestHandler(SimpleXMLRPCRequestHandler):
     rpc_paths = ('/RPC2',)
@@ -67,19 +68,6 @@ class PubSubBroker:
 
     # Control Methods ========================
 
-    def state_change_handler(self, conn_state):
-        if conn_state == KazooState.LOST:
-            logging.warning("Kazoo Client detected a Lost state")
-            self.event_queue.put(ControlEvent(EventType.RESTART_BROKER))
-        elif conn_state == KazooState.SUSPENDED:
-            logging.warning("Kazoo Client detected a Suspended state")
-            self.event_queue.put(ControlEvent(EventType.PAUSE_OPER))
-        elif conn_state == KazooState.CONNECTED: # KazooState.CONNECTED
-            logging.warning("Kazoo Client detected a Connected state")
-            self.event_queue.put(ControlEvent(EventType.RESUME_OPER))
-        else:
-            logging.warning("Kazoo Client detected an UNKNOWN state")
-
     def serve(self):
         # start process of joining the system
         self.event_queue.put(ControlEvent(EventType.RESTART_BROKER))
@@ -94,8 +82,15 @@ class PubSubBroker:
             elif event.name == EventType.RESUME_OPER:
                 pass
             elif event.name == EventType.RESTART_BROKER:
+                # retry Making connection with ZooKeeper and joining the cluster
                 dt = threading.Thread(target=self.join_cluster, daemon=True)
                 dt.start()
+            elif event.name == EventType.RING_UPDATE:
+                ring = event.data[CHORD_RING]
+                dt = threading.Thread(target=self.manage_ring_update, args=(ring,), daemon=True)
+                dt.start()
+                # reset watch on Broker Registry in ZooKeeper
+                self.zk_client.get_children(BROKER_REG_PATH, watch=self.build_updated_chord_ring)
             elif event.name == EventType.UPDATE_TOPICS:
                 pass
             elif event.name == EventType.VIEW_CHANGE:
@@ -104,34 +99,61 @@ class PubSubBroker:
                 logging.warning("Unknown Event detected: {}".format(event.name))
         
     def join_cluster(self):
-
         try:
             # start the client
             self.zk_client.start()
-            self.zk_client.ensure_path("/brokerRegistry")
             
             # create a watch and a new node for this broker
-            self.zk_client.get_children("/brokerRegistry")
-            self.my_znode = self.zk_client.create("/brokerRegistry/{}".format(self.my_address), value="true".encode("utf-8"), ephemeral=True)
+            self.zk_client.ensure_path(BROKER_REG_PATH)
+            self.zk_client.get_children(BROKER_REG_PATH, watch=self.build_updated_chord_ring)
+            my_path = BROKER_REG_PATH + "/{}".format(self.my_address)
+            self.my_znode = self.zk_client.create(my_path, value="true".encode("utf-8"), ephemeral=True)
 
         except Exception as e:
             logging.warning("Join Cluster error: {}".format(e))
             self.event_queue.put(ControlEvent(EventType.RESTART_BROKER))
 
-    def restart_broker(self):
-        pass
+    def manage_ring_update(self, updated_ring):
+        # Print to logs
+        formatted = ["{}".format(str(node)) for node in updated_ring]
+        logging.warning("Broker Watch: {}".format(", ".join(formatted)))
 
-    # # The callback that runs when the watch is triggered by a change to the registry 
-    # # TODO self.brokers list needs to be updated safely 
+        # Detect if this broker should do something about this change
+        # TODO
+        # predecessor_changed = check_if_new_leader(updated_ring, self.brokers, self.my_address)
+
+        # Replace local cached copy with new ring
+        self.brokers = updated_ring
+        return
+
+    def build_updated_chord_ring(self, watch_event):
+        # build updated chord ring
+        broker_addrs = self.zk_client.get_children(BROKER_REG_PATH) 
+        updated_ring = create_chord_ring(broker_addrs)
+
+        # send event back to Broker controller
+        data = {CHORD_RING: updated_ring}
+        event = ControlEvent(EventType.RING_UPDATE, data)
+        self.event_queue.put(event)
+        return
+
+    def state_change_handler(self, conn_state):
+        if conn_state == KazooState.LOST:
+            logging.warning("Kazoo Client detected a Lost state")
+            self.event_queue.put(ControlEvent(EventType.RESTART_BROKER))
+        elif conn_state == KazooState.SUSPENDED:
+            logging.warning("Kazoo Client detected a Suspended state")
+            self.event_queue.put(ControlEvent(EventType.PAUSE_OPER))
+        elif conn_state == KazooState.CONNECTED: # KazooState.CONNECTED
+            logging.warning("Kazoo Client detected a Connected state")
+            self.event_queue.put(ControlEvent(EventType.RESUME_OPER))
+        else:
+            logging.warning("Kazoo Client detected an UNKNOWN state")
+
     # def dynamic_watch(watch_information): 
-        
-
     #     # Check for changes that would imply that the broker should DO SOMETHING
-    #     # predecessor_changed = check_if_new_leader(updated_ring, self.brokers, self.my_address)
-
+    #     
     #     self.brokers = updated_ring
-
-        
     #     formatted = ["{}".format(str(node)) for node in updated_ring]
     #     print("Broker Watch: {}".format(", ".join(formatted)))
     #     # print("Responsible for view change: {}".format(str(predecessor_changed))) 
