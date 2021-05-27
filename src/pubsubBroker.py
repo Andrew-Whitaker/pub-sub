@@ -78,16 +78,20 @@ class PubSubBroker:
             event = self.event_queue.get() # blocking call
 
             if event.name == EventType.PAUSE_OPER:
-                pass
+                self.operational = False
             elif event.name == EventType.RESUME_OPER:
+                # Don't quite know what will need to be done in this situation
+                # 1) Get an updated chord ring because no guarantees that it 
+                #    is still the same since we were last connected. 
+                # 2) This may also imply some catch up on data!
+                # 2) Make RPC server operational 
                 pass
             elif event.name == EventType.RESTART_BROKER:
                 # retry Making connection with ZooKeeper and joining the cluster
-                dt = threading.Thread(target=self.join_cluster, daemon=True)
-                dt.start()
+                self.restart_broker()
             elif event.name == EventType.RING_UPDATE:
                 ring = event.data[CHORD_RING]
-                dt = threading.Thread(target=self.manage_ring_update, args=(ring,), daemon=True)
+                dt = threading.Thread(target=self.callback_ring_update, args=(ring,), daemon=True)
                 dt.start()
                 # reset watch on Broker Registry in ZooKeeper
                 self.zk_client.get_children(BROKER_REG_PATH, watch=self.build_updated_chord_ring)
@@ -97,23 +101,50 @@ class PubSubBroker:
                 pass
             else:
                 logging.warning("Unknown Event detected: {}".format(event.name))
+
+    def restart_broker(self):
+        connected = False
+        while not connected:
+            try: 
+                # start the client
+                self.zk_client.start()
+                connected = True
+            except Exception as e:
+                logging.warning("Join Cluster error: {}".format(e))
+
+        try:
+            # build chord ring for the first time
+            self.zk_client.ensure_path(BROKER_REG_PATH)
+            broker_addrs = self.zk_client.get_children(BROKER_REG_PATH) 
+            self.brokers = create_chord_ring(broker_addrs)
+        except Exception as e:
+            logging.warning("Join Cluster error: {}".format(e))
+            self.event_queue.put(ControlEvent(EventType.RESTART_BROKER))
+            return
+
+        # TODO Do something to prepare for new responsibilities
+
+
+        # Jump into the mix
+        self.join_cluster()
+
         
     def join_cluster(self):
-        try:
-            # start the client
-            self.zk_client.start()
-            
+        try:           
             # create a watch and a new node for this broker
             self.zk_client.ensure_path(BROKER_REG_PATH)
             self.zk_client.get_children(BROKER_REG_PATH, watch=self.build_updated_chord_ring)
             my_path = BROKER_REG_PATH + "/{}".format(self.my_address)
             self.my_znode = self.zk_client.create(my_path, value="true".encode("utf-8"), ephemeral=True)
 
+            # enable RPC requests to come through
+            self.operational = True
+
         except Exception as e:
             logging.warning("Join Cluster error: {}".format(e))
             self.event_queue.put(ControlEvent(EventType.RESTART_BROKER))
 
-    def manage_ring_update(self, updated_ring):
+    def callback_ring_update(self, updated_ring):
         # Print to logs
         formatted = ["{}".format(str(node)) for node in updated_ring]
         logging.warning("Broker Watch: {}".format(", ".join(formatted)))
