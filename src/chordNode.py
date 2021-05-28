@@ -1,8 +1,9 @@
 # chordNode.py>
 import hashlib
+import logging
 
 EXTRA_STR = "String to help push hashed values further from one another."
-MAX_HASH = 2**32
+MAX_HASH = 2**30
 
 def chord_hash(key: str):
     hash_hex = hashlib.sha256(key.encode('utf-8')).hexdigest()
@@ -27,21 +28,79 @@ def create_chord_ring(brokers):
     return chord_ring
 
 def find_chord_successor(key: str, chord_ring):
+    """Find the successor in the ring for the key.
+    Parameters:
+    - key: string to be hashed an sought after in the chord ring
+    - chord_ring: array of ChordNode (assumed that this array is sorted by hash index)
+
+    Returns: tuple (ChordNode, index) chord node representing the successor and an
+      int value for its index. Could return (None, -1) is the chord_ring is empty.
+    """
+    if len(chord_ring) == 0:
+        return None, -1
+
     # calculate hash of key
     id = chord_hash(key)
 
     # Slow Linear version of finding the Identifier
-    for i in range(len(chord_ring)):
+    for i in range(1, len(chord_ring)):
         # Current range is (chord_ring[i], chord_ring[i+1]]
         lower = chord_ring[i-1].hash_id
         upper = chord_ring[i].hash_id
         if id > lower and id <= upper:
-            return chord_ring[i]
+            return chord_ring[i], i
 
     # Exiting the for loop means that the ID didn't belong
     # to any of the ranges we checked through. So it must belong
     # to Node[0] => either ID <= Node[0].ID OR ID > Node[last].ID
-    return chord_ring[0]
+    return chord_ring[0], 0
+
+def find_chord_predecessor(key: str, chord_ring):
+    """Find the predecessor in the ring for the key.
+    Parameters:
+    - key: string to be hashed an sought after in the chord ring
+    - chord_ring: array of ChordNode (assumed that this array is sorted by hash index)
+
+    Returns: tuple (ChordNode, index) chord node representing the predecessor and an
+      int value for its index. Could return (None, -1) is the chord_ring is empty.
+    """
+    if len(chord_ring) == 0:
+        return None, -1
+
+    # calculate hash of key
+    id = chord_hash(key)
+
+    # Slow Linear version of finding the Identifier
+    for i in range(1, len(chord_ring)):
+        # Current range is (chord_ring[i], chord_ring[i+1]]
+        lower = chord_ring[i-1].hash_id
+        upper = chord_ring[i].hash_id
+        if id > lower and id <= upper:
+            return chord_ring[i-1], i-1
+
+    # Exiting the for loop means that the ID didn't belong
+    # to any of the ranges we checked through. So it must belong
+    # to Node[0] => either ID <= Node[0].ID OR ID > Node[last].ID
+    last = len(chord_ring) - 1
+    return chord_ring[last], last
+
+def find_chord_segment(address: str, chord_ring):
+    """Find address tuple (start, end), both inclusive values, that represent
+    the start and end of the responsibility segment of this address. 
+    - Tip: address does not need to belong to an existing broker on the ring, but
+    it may.
+    - If chord_ring is empty, then returned segment will be entire chord ring, 
+    which is [0, MAX_HASH]
+    """
+
+    pred_node, pred_index = find_chord_predecessor(address, chord_ring)
+    if pred_node == None:
+        return 0, MAX_HASH
+    start = pred_node.hash_id + 1
+    end = chord_hash(address)
+    return start, end
+
+
 
 # Detect what part of the chord ring changed
 # Return Boolean if your predecessor changed.
@@ -49,7 +108,8 @@ def check_if_new_leader(new_ring, old_ring, my_address):
     # determine indices of this Broker in both rings
     new_index = my_ring_index(new_ring, my_address)
     if new_index == -1:
-        raise ValueError("Addr {} was not found on the chord ring".format(my_address))
+        logging.warning("Addr {} was not found on the new chord ring".format(my_address))
+        return False
     old_index = my_ring_index(old_ring, my_address)
     if old_index == -1:
         return True
@@ -62,14 +122,13 @@ def check_if_new_leader(new_ring, old_ring, my_address):
         return True
     else:
         return False
-    
+
 
 # Retrieve the Index of Broker in the Chord Ring
 def my_ring_index(chord_ring, my_address):
     for i, node in chord_ring:
         if node.key == my_address:
             return i
-    
     return -1
 
 def predecessor_index(my_index, ring_length):

@@ -9,9 +9,10 @@ from kazoo.client import KazooState
 from kazoo.exceptions import KazooException, OperationTimeoutError
 from kazoo.protocol.paths import join
 
-from chordNode import create_chord_ring
+from chordNode import *
 from event import *
 from zk_helpers import *
+from pubsubClient import buildBrokerClient
 
 BROKER_REG_PATH = "/brokerRegistry"
 
@@ -37,22 +38,24 @@ class PubSubBroker:
         # Let Broker Control Functionality by responding to events
         self.event_queue = queue.Queue()
         self.operational = False # RPC method should/not accept requests
+        self.curr_view = 0 # view number
 
         # Topic data structures
         # keeping it simple...it's just a single integer instead of a map
         # of topic queues
-        self.topic_data = 0 
-        self.data_lock = threading.Lock()
+        self.topics = {} # dictionary - (topic: str) => list(messages: str)
+        self.topic_locks = {} # dictionary = (topic: str) => threading.Lock()
+        self.creation_lock = threading.Lock() # lock for when Broker needs to create a topic
 
 
     # RPC Methods ==========================
     
     def enqueue(self, topic: str, message: str):
         if self.operational:
-            self.data_lock.acquire()
-            self.topic_data += 1
-            print("Data value: {}".format(str(self.topic_data)))
-            self.data_lock.release()
+            # self.data_lock.acquire()
+            # self.topic_data += 1
+            # print("Data value: {}".format(str(self.topic_data)))
+            # self.data_lock.release()
             return True
         else:   
             return False
@@ -65,6 +68,24 @@ class PubSubBroker:
 
     def consume(self, topic: str, index: int):
         pass
+
+    def request_view_change(self, start: int, end: int):
+        """This broker is being requested by another broker to perform a view change.
+        Other Broker (new primary) wants to take responsibility for the segment of 
+        the chord ring [start, end]. 
+        
+        This broker needs to lock all of the topic channels it has between start and end,
+        and cease taking user requests for these topics and provide the new broker with the
+        index of the queue that it can begin pushing messages to.
+        
+        """
+        topic_vector = {}
+        # Go through topic queus and perform proper operations
+
+        logging.warning("Broker {} is no longer responsible for [{},{}]".format(
+            self.my_address, str(start), str(end)))
+
+        return self.curr_view, topic_vector
 
     # Control Methods ========================
 
@@ -122,8 +143,24 @@ class PubSubBroker:
             self.event_queue.put(ControlEvent(EventType.RESTART_BROKER))
             return
 
-        # TODO Do something to prepare for new responsibilities
+        # TODO Request a View Change from the previous Primary
+        # 1) determine topic range this broker will inhabit
+        start, end = find_chord_segment(self.my_address, self.brokers)
 
+        # 2) determine who the previous primary is
+        curr_primary, _ = find_chord_successor(self.my_address, self.brokers)
+
+        # 3) request view change for that keyspace
+        if curr_primary != None:
+            # set up RPC-client
+            broker_rpc = buildBrokerClient(curr_primary.key)
+            prev_view, topic_vector = broker_rpc.broker.request_view_change(start, end)
+        else:
+            prev_view = 0
+        
+        self.curr_view = prev_view
+        logging.warning("Broker {} is starting view {}. Responsible for [{},{}]".format(
+            self.my_address, str(prev_view + 1), str(start), str(end)))
 
         # Jump into the mix
         self.join_cluster()
@@ -152,6 +189,10 @@ class PubSubBroker:
         # Detect if this broker should do something about this change
         # TODO
         # predecessor_changed = check_if_new_leader(updated_ring, self.brokers, self.my_address)
+        self.curr_view += 1
+        start, end = find_chord_segment(self.my_address, updated_ring)
+        logging.warning("Broker {} detected view {}. Responsible for [{},{}]".format(
+            self.my_address, str(self.curr_view), str(start), str(end)))
 
         # Replace local cached copy with new ring
         self.brokers = updated_ring
@@ -229,6 +270,8 @@ if __name__ == "__main__":
     rpc_server.register_function(broker.enqueue_replica, "broker.enqueue_replica")
     rpc_server.register_function(broker.last_index, "broker.last_index")
     rpc_server.register_function(broker.consume, "broker.consume")
+    rpc_server.register_function(broker.request_view_change, "broker.request_view_change")
+
 
     # Control Broker management
     service_thread = threading.Thread(target=broker.serve) 
