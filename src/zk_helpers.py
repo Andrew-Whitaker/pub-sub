@@ -2,7 +2,7 @@
 import sys
 import os
 
-from chordNode import *
+from chord_node import *
 
 def makeHostsString(hosts):
     # In case hosts is an empty array

@@ -2,7 +2,7 @@ from kazoo.client import KazooClient
 import xmlrpc.client
 import sys
 from zk_helpers import *
-from chordNode import *
+from chord_node import *
 import time
 
 class PubSubClient:
@@ -69,9 +69,7 @@ class PubSubClient:
     #==============================
     # Private Methods
 
-
-    
-def buildBrokerClient( host: str):
+def buildBrokerClient(host: str):
     ''' Build a client for the Broker RPC server
     Paramters:
     host (str): Address and Port of the Broker. Takes the form of "ip_address:port_number". 

@@ -9,7 +9,7 @@ from kazoo.client import KazooState
 from kazoo.exceptions import KazooException, OperationTimeoutError
 from kazoo.protocol.paths import join
 
-from chordNode import *
+from chord_node import *
 from event import *
 from zk_helpers import *
 from pubsubClient import buildBrokerClient
@@ -68,23 +68,58 @@ class PubSubBroker:
     # RPC Methods ==========================
 
     def enqueue(self, topic: str, message: str):
-        # do not perform the operation if we are not operational
         if not self.operational:
             return False
         
         # protect against contention when creating topics 
         self.creation_lock.acquire()
         if topic not in self.topics:
-            # self.topic_locks[topic] = threading.Lock()
             self.topics[topic] = Topic(topic)
         self.creation_lock.release()
+
+        # who are my successors
+        myself, my_index = find_chord_successor(self.my_address, self.brokers)
+        replica_one = self.brokers[(my_index + 1) % len(self.brokers)]
+        replica_two = self.brokers[(my_index + 2) % len(self.brokers)] 
+
+        # create a client for each of the replicas
+        r1Client = buildBrokerClient(replica_one.key)
+        r2Client = buildBrokerClient(replica_two.key)
+
+        # TODO ideally you should do this concurrently 
+        next_index = self.last_index(topic)
+        success_one = r1Client.broker.enqueue_replica(topic, message, next_index)
+        success_two = r2Client.broker.enqueue_replica(topic, message, next_index)
         
-        # acquire a lock on my topic and append to the end of the log
-        self.topics[topic].publish(message)
-        return True
+        # append to the end of the log
+        if success_one or success_two:
+            self.topics[topic].publish(message)
+            return True
+        
+        return False
 
     def enqueue_replica(self, topic: str, message: str, index: int):
-        pass
+        if not self.operational: 
+            return False
+        
+        # protect against contention when creating topics 
+        self.creation_lock.acquire()
+        if topic not in self.topics:
+            self.topics[topic] = Topic(topic)
+        self.creation_lock.release() 
+
+        # the easiest case for messages
+        if index == self.topics[topic].last_index():
+            print("Replica {} saved the data".format(self.my_address))
+            # TODO check if any messages ahead of me have already arrived
+            self.topics[topic].publish(message)
+            return True
+        elif index > self.topics[topic].last_index():
+            # TODO fix this case - a messsage in the wire that needs to go ahead of this
+            print("YOUR WORST NIGHTMARE HAPPENDED")
+            return False
+        else:
+            return False
 
     def last_index(self, topic: str):
         if not self.operational:
@@ -260,10 +295,38 @@ class PubSubBroker:
     #     # print("Responsible for view change: {}".format(str(predecessor_changed))) 
 
 
+def start_broker(zk_config_path, url):
+    ip_addr = url.split(":")[0]
+    port = int(url.split(":")[1])
+
+    # Load up the Supporting Zookeeper Configuration
+    zk_hosts = get_zookeeper_hosts(zk_config_path)
+
+    # Create the Broker and Spin up its RPC server
+    rpc_server = threadedXMLRPCServer((ip_addr, port), requestHandler=RequestHandler)
+    broker = PubSubBroker(url, zk_hosts)
+
+    # Register all functions in the Broker's Public API
+    rpc_server.register_introspection_functions()
+    rpc_server.register_function(broker.enqueue, "broker.enqueue")
+    rpc_server.register_function(broker.enqueue_replica, "broker.enqueue_replica")
+    rpc_server.register_function(broker.last_index, "broker.last_index")
+    rpc_server.register_function(broker.consume, "broker.consume")
+    rpc_server.register_function(broker.request_view_change, "broker.request_view_change")
+
+    # Control Broker management
+    service_thread = threading.Thread(target=broker.serve) 
+    service_thread.start()
+
+    # Start Broker RPC Server
+    rpc_server.serve_forever()
+
+    service_thread.join()
+
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
-        print("Usage: python pubsubBroker.py <configuration_path> <zk_config>") 
+        print("Usage: python src/pubsubBroker.py <configuration_path> <zk_config>") 
         exit(1)
 
     print("Starting PubSub Broker...")
@@ -280,33 +343,5 @@ if __name__ == "__main__":
             broker_conf_array = f.readlines()
             my_url = broker_conf_array[0].strip() # Smh
 
-    my_ip_addr = my_url.split(":")[0]
-    my_port = int(my_url.split(":")[1])
-
     # Display the loaded configuration
-    print("Address:\t{}".format(my_url))
-
-    # Load up the Supporting Zookeeper Configuration
-    zk_hosts = get_zookeeper_hosts(zk_config_path)
-
-    # Create the Broker and Spin up its RPC server
-    rpc_server = threadedXMLRPCServer((my_ip_addr, my_port), requestHandler=RequestHandler)
-    broker = PubSubBroker(my_url, zk_hosts)
-
-    # Register all functions in the Broker's Public API
-    rpc_server.register_introspection_functions()
-    rpc_server.register_function(broker.enqueue, "broker.enqueue")
-    rpc_server.register_function(broker.enqueue_replica, "broker.enqueue_replica")
-    rpc_server.register_function(broker.last_index, "broker.last_index")
-    rpc_server.register_function(broker.consume, "broker.consume")
-    rpc_server.register_function(broker.request_view_change, "broker.request_view_change")
-
-
-    # Control Broker management
-    service_thread = threading.Thread(target=broker.serve) 
-    service_thread.start()
-
-    # Start Broker RPC Server
-    rpc_server.serve_forever()
-
-    service_thread.join()
+    start_broker(zk_config_path, my_url)
