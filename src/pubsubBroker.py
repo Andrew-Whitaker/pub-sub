@@ -24,6 +24,27 @@ class RequestHandler(SimpleXMLRPCRequestHandler):
 class threadedXMLRPCServer(ThreadingMixIn, SimpleXMLRPCServer):
     pass
 
+class Topic: 
+    def __init__(self, name):
+        self.lock = threading.Lock()
+        self.message_count = 0
+        self.messages = []
+        
+    def publish(self, message):
+        self.lock.acquire()
+        self.messages.append(message)
+        self.message_count += 1
+        self.lock.release()
+    
+    def consume(self, index):
+        if index < 0: 
+            index = 0
+        elif index > len(self.messages):
+            return []
+        return self.messages[index:]
+    
+    def last_index(self): 
+        return self.message_count
 
 class PubSubBroker:
 
@@ -40,35 +61,43 @@ class PubSubBroker:
         self.operational = False # RPC method should/not accept requests
         self.curr_view = 0 # view number
 
-        # Topic data structures
-        # keeping it simple...it's just a single integer instead of a map
-        # of topic queues
-        self.topics = {} # dictionary - (topic: str) => list(messages: str)
-        self.topic_locks = {} # dictionary = (topic: str) => threading.Lock()
+        # Topic data structures 
         self.creation_lock = threading.Lock() # lock for when Broker needs to create a topic
-
+        self.topics = {} # dictionary - (topic: str) => Class Topic
 
     # RPC Methods ==========================
-    
+
     def enqueue(self, topic: str, message: str):
-        if self.operational:
-            # self.data_lock.acquire()
-            # self.topic_data += 1
-            # print("Data value: {}".format(str(self.topic_data)))
-            # self.data_lock.release()
-            return True
-        else:   
+        # do not perform the operation if we are not operational
+        if not self.operational:
             return False
+        
+        # protect against contention when creating topics 
+        self.creation_lock.acquire()
+        if topic not in self.topics:
+            # self.topic_locks[topic] = threading.Lock()
+            self.topics[topic] = Topic(topic)
+        self.creation_lock.release()
+        
+        # acquire a lock on my topic and append to the end of the log
+        self.topics[topic].publish(message)
+        return True
 
     def enqueue_replica(self, topic: str, message: str, index: int):
         pass
 
     def last_index(self, topic: str):
-        pass
+        if not self.operational:
+            return -1 
+        if topic not in self.topics:
+            return 0
+        return self.topics[topic].last_index() 
 
     def consume(self, topic: str, index: int):
-        pass
-
+        if not self.operational or topic not in self.topics:
+            return []
+        return self.topics[topic].consume(index)
+        
     def request_view_change(self, start: int, end: int):
         """This broker is being requested by another broker to perform a view change.
         Other Broker (new primary) wants to take responsibility for the segment of 

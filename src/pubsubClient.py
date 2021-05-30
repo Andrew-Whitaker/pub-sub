@@ -43,8 +43,8 @@ class PubSubClient:
         # build updated Chord Ring
         self.brokers = create_chord_ring(updated_brokers)
 
-
     def create_topic(self):
+        # can this just be nothing?
         pass
 
     def delete_topic(self):
@@ -57,12 +57,14 @@ class PubSubClient:
         # Find the right Broker
         broker = find_chord_successor(topic, self.brokers)
         # set up RPC-client
-        broker_rpc = buildBrokerClient(broker.key)
+        broker_rpc = buildBrokerClient(broker[0].key)
         # Send message
-        broker_rpc.broker.enqueue(topic, message)
+        return broker_rpc.broker.enqueue(topic, message)
 
     def consume(self, topic: str, index: int):
-        pass
+        broker = find_chord_successor(topic, self.brokers)
+        broker_rpc = buildBrokerClient(broker[0].key)
+        return broker_rpc.broker.consume(topic, index)
 
     #==============================
     # Private Methods
