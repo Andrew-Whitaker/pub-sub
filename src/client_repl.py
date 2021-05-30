@@ -87,7 +87,7 @@ def main(zookeeper_addresses):
     env = REPLEnv()
     client = PubSubClient(zookeeper_addresses)
     while True:
-        user_input = input("> ")
+        user_input = input(" > ")
         action = parse_line(user_input)
         if not perform(client, env, action):
             return 

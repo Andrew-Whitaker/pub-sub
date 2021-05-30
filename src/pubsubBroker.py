@@ -10,6 +10,7 @@ from kazoo.exceptions import KazooException, OperationTimeoutError
 from kazoo.protocol.paths import join
 
 from chord_node import *
+from topic import OutOfOrderBuffer, Topic, indexed_enqueue
 from event import *
 from zk_helpers import *
 from pubsubClient import buildBrokerClient
@@ -23,28 +24,6 @@ class RequestHandler(SimpleXMLRPCRequestHandler):
 
 class threadedXMLRPCServer(ThreadingMixIn, SimpleXMLRPCServer):
     pass
-
-class Topic: 
-    def __init__(self, name):
-        self.lock = threading.Lock()
-        self.message_count = 0
-        self.messages = []
-        
-    def publish(self, message):
-        self.lock.acquire()
-        self.messages.append(message)
-        self.message_count += 1
-        self.lock.release()
-    
-    def consume(self, index):
-        if index < 0: 
-            index = 0
-        elif index > len(self.messages):
-            return []
-        return self.messages[index:]
-    
-    def last_index(self): 
-        return self.message_count
 
 class PubSubBroker:
 
@@ -64,6 +43,7 @@ class PubSubBroker:
         # Topic data structures 
         self.creation_lock = threading.Lock() # lock for when Broker needs to create a topic
         self.topics = {} # dictionary - (topic: str) => Class Topic
+        self.pending_buffers = {} # dictionary - (topic: str) => Class Topic 
 
     # RPC Methods ==========================
 
@@ -106,27 +86,19 @@ class PubSubBroker:
         self.creation_lock.acquire()
         if topic not in self.topics:
             self.topics[topic] = Topic(topic)
+            self.pending_buffers[topic] = OutOfOrderBuffer(topic)
         self.creation_lock.release() 
 
-        # the easiest case for messages
-        if index == self.topics[topic].last_index():
-            print("Replica {} saved the data".format(self.my_address))
-            # TODO check if any messages ahead of me have already arrived
-            self.topics[topic].publish(message)
-            return True
-        elif index > self.topics[topic].last_index():
-            # TODO fix this case - a messsage in the wire that needs to go ahead of this
-            print("YOUR WORST NIGHTMARE HAPPENDED")
-            return False
-        else:
-            return False
+        # attempts to move the commit point as aggressiively as possible
+        indexed_enqueue(self.topics[topic], self.pending_buffers[topic], message, index)
+        return True
 
     def last_index(self, topic: str):
         if not self.operational:
             return -1 
         if topic not in self.topics:
             return 0
-        return self.topics[topic].last_index() 
+        return self.topics[topic].next_index() 
 
     def consume(self, topic: str, index: int):
         if not self.operational or topic not in self.topics:
@@ -285,15 +257,6 @@ class PubSubBroker:
             self.event_queue.put(ControlEvent(EventType.RESUME_OPER))
         else:
             logging.warning("Kazoo Client detected an UNKNOWN state")
-
-    # def dynamic_watch(watch_information): 
-    #     # Check for changes that would imply that the broker should DO SOMETHING
-    #     
-    #     self.brokers = updated_ring
-    #     formatted = ["{}".format(str(node)) for node in updated_ring]
-    #     print("Broker Watch: {}".format(", ".join(formatted)))
-    #     # print("Responsible for view change: {}".format(str(predecessor_changed))) 
-
 
 def start_broker(zk_config_path, url):
     ip_addr = url.split(":")[0]

@@ -1,11 +1,19 @@
 import sys
 import os
 import time
+import unittest
 
 from zk_helpers import get_zookeeper_hosts
 from pubsubBroker import start_broker
 from pubsubClient import PubSubClient
 from multiprocessing import Process
+
+# ======= TEST CASES =======
+
+def run_tests():
+    print("hi there, put the actual unit tests here")
+    
+# ======= END OF THE TESTS =======
 
 def setup_brokers(zk, brokers):
     b_processes = []
@@ -29,6 +37,8 @@ def setup_brokers(zk, brokers):
         if u_input.strip() == "q":
             [p.terminate() for p in b_processes] 
             return
+        if u_input.strip() == "test":
+            run_tests()
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
