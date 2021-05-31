@@ -1,5 +1,5 @@
 import unittest
-from chordNode import *
+from chord_node import *
 
 class TestRingCreation(unittest.TestCase):
     def test_empty(self):

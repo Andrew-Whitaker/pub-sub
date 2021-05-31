@@ -62,13 +62,12 @@ class PubSubBroker:
         self.creation_lock.release()
 
         # who are my successors
-        myself, my_index = find_chord_successor(self.my_address, self.brokers)
-        replica_one = self.brokers[(my_index + 1) % len(self.brokers)]
-        replica_two = self.brokers[(my_index + 2) % len(self.brokers)] 
+        repl1, repl1_index = find_chord_successor(self.my_address, self.brokers)
+        repl2, repl2_index = find_chord_successor(repl1.key, self.brokers, repl1_index)
 
         # create a client for each of the replicas
-        r1Client = buildBrokerClient(replica_one.key)
-        r2Client = buildBrokerClient(replica_two.key)
+        r1Client = buildBrokerClient(repl1.key)
+        r2Client = buildBrokerClient(repl2.key)
 
         # TODO ideally you should do this concurrently 
         next_index = self.last_index(topic)
