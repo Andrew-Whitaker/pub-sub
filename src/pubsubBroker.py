@@ -1,5 +1,5 @@
 import threading, queue
-import sys, os
+import sys, os, time
 import logging
 from xmlrpc.server import SimpleXMLRPCServer
 from xmlrpc.server import SimpleXMLRPCRequestHandler
@@ -10,7 +10,7 @@ from kazoo.exceptions import KazooException, OperationTimeoutError
 from kazoo.protocol.paths import join
 
 from chord_node import *
-from topic import OutOfOrderBuffer, Topic, indexed_enqueue
+from topic import OutOfOrderBuffer, Topic, consuming_enqueue 
 from event import *
 from zk_helpers import *
 from pubsubClient import buildBrokerClient
@@ -40,6 +40,10 @@ class PubSubBroker:
         self.operational = False # RPC method should/not accept requests
         self.curr_view = 0 # view number
 
+        # Topic Responsibilities
+        self.primary_segment = (-1,-1) 
+        self.replica_segment = (-1,-1)
+
         # Topic data structures 
         self.creation_lock = threading.Lock() # lock for when Broker needs to create a topic
         self.topics = {} # dictionary - (topic: str) => Class Topic
@@ -58,25 +62,21 @@ class PubSubBroker:
         self.creation_lock.release()
 
         # who are my successors
-        myself, my_index = find_chord_successor(self.my_address, self.brokers)
-        replica_one = self.brokers[(my_index + 1) % len(self.brokers)]
-        replica_two = self.brokers[(my_index + 2) % len(self.brokers)] 
+        repl1, repl1_index = find_chord_successor(self.my_address, self.brokers)
+        repl2, repl2_index = find_chord_successor(repl1.key, self.brokers, repl1_index)
 
         # create a client for each of the replicas
-        r1Client = buildBrokerClient(replica_one.key)
-        r2Client = buildBrokerClient(replica_two.key)
+        r1Client = buildBrokerClient(repl1.key)
+        r2Client = buildBrokerClient(repl2.key)
 
-        # TODO ideally you should do this concurrently 
-        next_index = self.last_index(topic)
-        success_one = r1Client.broker.enqueue_replica(topic, message, next_index)
-        success_two = r2Client.broker.enqueue_replica(topic, message, next_index)
+        # atomically assigns an index to the message 
+        message_index = self.topics[topic].publish(message)
         
-        # append to the end of the log
-        if success_one or success_two:
-            self.topics[topic].publish(message)
-            return True
-        
-        return False
+        # By construction, we assume at least one of these (TODO ideally concurrent) calls will succeed
+        success_one = r1Client.broker.enqueue_replica(topic, message, message_index)
+        success_two = r2Client.broker.enqueue_replica(topic, message, message_index)
+
+        return True
 
     def enqueue_replica(self, topic: str, message: str, index: int):
         if not self.operational: 
@@ -89,8 +89,11 @@ class PubSubBroker:
             self.pending_buffers[topic] = OutOfOrderBuffer(topic)
         self.creation_lock.release() 
 
+        broker = find_chord_successor(topic, self.brokers)
+        broker_rpc_client = buildBrokerClient(broker[0].key)
+
         # attempts to move the commit point as aggressiively as possible
-        indexed_enqueue(self.topics[topic], self.pending_buffers[topic], message, index)
+        consuming_enqueue(self.topics[topic], broker_rpc_client, message, index)
         return True
 
     def last_index(self, topic: str):
@@ -115,10 +118,10 @@ class PubSubBroker:
         index of the queue that it can begin pushing messages to.
         
         """
-        topic_vector = {}
+        topic_vector = {} # Example: {"sport": 13, "politics": 98} # (topic_name, index)
         # Go through topic queus and perform proper operations
 
-        logging.warning("Broker {} is no longer responsible for [{},{}]".format(
+        logging.warning("Broker {} is blocking requests for [{},{}]".format(
             self.my_address, str(start), str(end)))
 
         return self.curr_view, topic_vector
@@ -147,15 +150,20 @@ class PubSubBroker:
                 # retry Making connection with ZooKeeper and joining the cluster
                 self.restart_broker()
             elif event.name == EventType.RING_UPDATE:
+                # Take care of new updated chord ring
                 ring = event.data[CHORD_RING]
-                dt = threading.Thread(target=self.callback_ring_update, args=(ring,), daemon=True)
-                dt.start()
+                self.manage_ring_update(ring)
                 # reset watch on Broker Registry in ZooKeeper
-                self.zk_client.get_children(BROKER_REG_PATH, watch=self.build_updated_chord_ring)
+                self.zk_client.get_children(BROKER_REG_PATH, watch=self.registry_callback)
             elif event.name == EventType.UPDATE_TOPICS:
-                pass
+                segment = event.data[SEGMENT] # segment of chord ring in question
+                pred,_ = find_chord_predecessor(self.my_address, self.brokers)
+                logging.warning("Broker {} is updating replicas with {} for segment[{}, {}]".format(
+                    self.my_address, pred.key, str(segment[0]), str(segment[1])))
             elif event.name == EventType.VIEW_CHANGE:
-                pass
+                segment = event.data[SEGMENT] # segment of chord ring in question
+                succ,_ = find_chord_successor(self.my_address, self.brokers)
+                self.perform_view_change_sync(segment, succ)
             else:
                 logging.warning("Unknown Event detected: {}".format(event.name))
 
@@ -181,7 +189,7 @@ class PubSubBroker:
 
         # TODO Request a View Change from the previous Primary
         # 1) determine topic range this broker will inhabit
-        start, end = find_chord_segment(self.my_address, self.brokers)
+        start, end = find_prime_chord_segment(self.my_address, self.brokers)
 
         # 2) determine who the previous primary is
         curr_primary, _ = find_chord_successor(self.my_address, self.brokers)
@@ -198,7 +206,7 @@ class PubSubBroker:
         logging.warning("Broker {} is starting view {}. Responsible for [{},{}]".format(
             self.my_address, str(prev_view + 1), str(start), str(end)))
 
-        # Jump into the mix
+        # 4) Jump into the mix by registering in ZooKeeper
         self.join_cluster()
 
         
@@ -206,7 +214,7 @@ class PubSubBroker:
         try:           
             # create a watch and a new node for this broker
             self.zk_client.ensure_path(BROKER_REG_PATH)
-            self.zk_client.get_children(BROKER_REG_PATH, watch=self.build_updated_chord_ring)
+            self.zk_client.get_children(BROKER_REG_PATH, watch=self.registry_callback)
             my_path = BROKER_REG_PATH + "/{}".format(self.my_address)
             self.my_znode = self.zk_client.create(my_path, value="true".encode("utf-8"), ephemeral=True)
 
@@ -215,26 +223,60 @@ class PubSubBroker:
 
         except Exception as e:
             logging.warning("Join Cluster error: {}".format(e))
+            time.sleep(1)
             self.event_queue.put(ControlEvent(EventType.RESTART_BROKER))
 
-    def callback_ring_update(self, updated_ring):
+    def manage_ring_update(self, updated_ring):
         # Print to logs
-        formatted = ["{}".format(str(node)) for node in updated_ring]
-        logging.warning("Broker Watch: {}".format(", ".join(formatted)))
-
-        # Detect if this broker should do something about this change
-        # TODO
-        # predecessor_changed = check_if_new_leader(updated_ring, self.brokers, self.my_address)
         self.curr_view += 1
-        start, end = find_chord_segment(self.my_address, updated_ring)
-        logging.warning("Broker {} detected view {}. Responsible for [{},{}]".format(
-            self.my_address, str(self.curr_view), str(start), str(end)))
+        formatted = ["{}".format(str(node)) for node in updated_ring]
+        logging.warning("Broker view {} -- Watch: {}".format(
+            str(self.curr_view),", ".join(formatted)))
+
+        # Detect if this broker should respond to changes in its Primary segment
+        # np_start => new primary start    cp_start => current primary start
+        np_start, np_end = find_prime_chord_segment(self.my_address, updated_ring)
+        (cp_start, cp_end) = self.primary_segment
+
+        curr_range = segment_range(cp_start, cp_end)
+        new_range = segment_range(np_start, np_end)
+        if new_range > curr_range: # gained responsibility
+            if (cp_start == -1): delta_end = np_end
+            elif (cp_start == 0): delta_end = MAX_HASH - 1
+            else: delta_end = cp_start - 1
+            view_change = ControlEvent(EventType.VIEW_CHANGE, {SEGMENT: (np_start, delta_end)})
+            self.event_queue.put(view_change)
+        # No need to do anything if range is smaller or the same
+
+        # Detect if this Broker should respond to changes in its Replica Segment
+        nr_start, nr_end = find_repl_chord_segment(self.my_address, updated_ring)
+        logging.warning("Repl Chord Ring segment[{}, {}]".format(
+                    str(nr_start), str(nr_end)))
+        (cr_start, cr_end) = self.replica_segment
+
+        curr_range = segment_range(cr_start, cp_end) # use the whole range Replica + Primary
+        new_range = segment_range(nr_start, np_end)  # Same here
+        if new_range > curr_range: # gained responsibility
+            if (cr_start == -1): delta_end = nr_end
+            elif (cr_start == 0): delta_end = MAX_HASH - 1
+            else: delta_end = cr_start - 1
+            view_change = ControlEvent(EventType.UPDATE_TOPICS, {SEGMENT: (nr_start, delta_end)})
+            self.event_queue.put(view_change)
+        # No need to do anything if range is smaller or the same
 
         # Replace local cached copy with new ring
         self.brokers = updated_ring
+        self.primary_segment = (np_start, np_end)
+        self.replica_segment = (nr_start, nr_end)
         return
 
-    def build_updated_chord_ring(self, watch_event):
+    def perform_view_change_sync(self, segment, predecessor):
+        if self.my_address != predecessor.key:
+            logging.warning("Broker {} is performing view change with {} for segment[{}, {}]".format(
+                    self.my_address, predecessor.key, str(segment[0]), str(segment[1])))
+        return
+
+    def registry_callback(self, watch_event):
         # build updated chord ring
         broker_addrs = self.zk_client.get_children(BROKER_REG_PATH) 
         updated_ring = create_chord_ring(broker_addrs)

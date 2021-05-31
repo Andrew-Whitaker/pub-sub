@@ -4,6 +4,8 @@ from enum import Enum
 # Constants for accessing data fields out of the Control Events'
 # data dictionaries
 CHORD_RING = "ring"
+PREDECESSOR = "predecessor"
+SEGMENT = "segment"
 
 class EventType(Enum):
     PAUSE_OPER = 1
