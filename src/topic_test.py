@@ -1,75 +1,43 @@
 import unittest
 
-from topic import OutOfOrderBuffer, Topic, indexed_enqueue
+from topic import OutOfOrderBuffer, Topic, consuming_enqueue
 
-class TestOutOfOrderBuffer(unittest.TestCase):
- 
-    def test_OOB_correct_indices(self):
-        x = OutOfOrderBuffer("balloons")
-        x.publish("Message", 9)
-        x.publish("Message2", 4)
-        x.publish("Message3", 0)
-        self.assertEqual(x.indices(), [0, 4, 9])
-        self.assertEqual(x.max(), ('Message', 9))
+class _Broker:
+    def __init__(self,  topic: str, topic_messages):        
+        self.topic_messages = topic_messages
+    def consume(self, topic, index):
+        return self.topic_messages[index:]
 
-    def test_OOB_correct_lengths(self):
-        x = OutOfOrderBuffer("balloons")
-        self.assertEqual(len(x), 0)
-        x.publish("Message", 9)
-        x.publish("Message2", 4)
-        x.publish("Message3", 0)
-        self.assertEqual(len(x), 3)
+class MockBrokerRPCClient:
+    def __init__(self,  topic: str, topic_messages):        
+        self.broker = _Broker(topic, topic_messages)
     
-    def test_OOB_correct_has_one(self):
-        x = OutOfOrderBuffer("balloons")
-        self.assertEqual(len(x), 0)
-        x.publish("Message2", 2)
-        self.assertFalse(x.has(1, 3))
-        x.publish("Message1", 1)
-        self.assertTrue(x.has(1, 3))
-
-    def test_OOB_correct_extract(self):
-        x = OutOfOrderBuffer("balloons")
-        x.publish("Message3", 3)
-        x.publish("Message2", 2)
-        x.publish("Message1", 1)
-        self.assertEqual(x.indices(), [1, 2, 3])
-        res = x.extract(1, 4)
-        self.assertEqual(x.indices(), [])
-        self.assertEqual(res, [('Message1', 1), ('Message2', 2), ('Message3', 3)])
-
-    def test_basic_indexed_enqueue_one(self):
+class TestConsumingEnqueue(unittest.TestCase):
+    def test_basic_addition(self):
         t = Topic("balloons")
-        oob = OutOfOrderBuffer("balloons")
-        indexed_enqueue(t, oob, "message_0", 0)
-        indexed_enqueue(t, oob, "message_1", 1)
-        self.assertEqual(t.next_index(), 2)
-
-    def test_basic_indexed_enqueue_two(self):
-        t = Topic("balloons")
-        oob = OutOfOrderBuffer("balloons")
-        indexed_enqueue(t, oob, "message_0", 0)
-        indexed_enqueue(t, oob, "message_2", 2)
-        self.assertEqual(t.next_index(), 1)
-        indexed_enqueue(t, oob, "message_1", 1)
+        c = MockBrokerRPCClient("topic", [])
+        consuming_enqueue(t, c, "Message0", 0)
+        consuming_enqueue(t, c, "Message1", 1)
+        consuming_enqueue(t, c, "Message2", 2)
         self.assertEqual(t.next_index(), 3)
-        indexed_enqueue(t, oob, "message_3", 3)
-        self.assertEqual(t.next_index(), 4)
+        self.assertEqual(t.consume(0), ["Message0","Message1","Message2"])
     
-    def test_basic_indexed_enqueue_three(self):
+    def test_basic_ooo_addition_1(self):
         t = Topic("balloons")
-        oob = OutOfOrderBuffer("balloons")
-        indexed_enqueue(t, oob, "message_3", 3)
-        self.assertEqual(t.next_index(), 0)
-        self.assertEqual(len(oob), 1)
-        indexed_enqueue(t, oob, "message_2", 2)
-        self.assertEqual(t.next_index(), 0)
-        self.assertEqual(len(oob), 2)
-        indexed_enqueue(t, oob, "message_1", 1)  
-        self.assertEqual(t.next_index(), 0)
-        self.assertEqual(len(oob), 3)
-        indexed_enqueue(t, oob, "message_0", 0)  
-        self.assertEqual(t.next_index(), 4)
+        c = MockBrokerRPCClient("topic", ["Message0", "Message1"])
+        consuming_enqueue(t, c, "Message1", 1)
+        consuming_enqueue(t, c, "Message2", 2)
+        self.assertEqual(t.next_index(), 3)
+        self.assertEqual(t.consume(0), ["Message0","Message1","Message2"])
+    
+    def test_basic_ooo_addition_2(self):
+        t = Topic("balloons")
+        c = MockBrokerRPCClient("topic", ["Message0", "Message1"])
+        consuming_enqueue(t, c, "Message1", 1)
+        consuming_enqueue(t, c, "Message2", 2)
+        consuming_enqueue(t, c, "Message1", 1)
+        self.assertEqual(t.next_index(), 3)
+        self.assertEqual(t.consume(0), ["Message0","Message1","Message2"])
     
 if __name__ == '__main__':
     unittest.main()
