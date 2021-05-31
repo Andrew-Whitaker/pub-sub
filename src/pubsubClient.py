@@ -2,7 +2,7 @@ from kazoo.client import KazooClient
 import xmlrpc.client
 import sys
 from zk_helpers import *
-from chordNode import *
+from chord_node import *
 import time
 
 class PubSubClient:
@@ -43,8 +43,8 @@ class PubSubClient:
         # build updated Chord Ring
         self.brokers = create_chord_ring(updated_brokers)
 
-
     def create_topic(self):
+        # can this just be nothing?
         pass
 
     def delete_topic(self):
@@ -57,19 +57,19 @@ class PubSubClient:
         # Find the right Broker
         broker = find_chord_successor(topic, self.brokers)
         # set up RPC-client
-        broker_rpc = buildBrokerClient(broker.key)
+        broker_rpc = buildBrokerClient(broker[0].key)
         # Send message
-        broker_rpc.broker.enqueue(topic, message)
+        return broker_rpc.broker.enqueue(topic, message)
 
     def consume(self, topic: str, index: int):
-        pass
+        broker = find_chord_successor(topic, self.brokers)
+        broker_rpc = buildBrokerClient(broker[0].key)
+        return broker_rpc.broker.consume(topic, index)
 
     #==============================
     # Private Methods
 
-
-    
-def buildBrokerClient( host: str):
+def buildBrokerClient(host: str):
     ''' Build a client for the Broker RPC server
     Paramters:
     host (str): Address and Port of the Broker. Takes the form of "ip_address:port_number". 
