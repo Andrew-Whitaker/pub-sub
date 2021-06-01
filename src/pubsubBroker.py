@@ -111,8 +111,9 @@ class PubSubBroker:
         return self.topics[topic].messages
 
     def get_topics(self):
-        return [x for x in self.topics.keys()]
-        
+        return list(self.topics.keys())
+
+
     def request_view_change(self, start: int, end: int):
         """This broker is being requested by another broker to perform a view change.
         Other Broker (new primary) wants to take responsibility for the segment of 
@@ -130,6 +131,46 @@ class PubSubBroker:
             self.my_address, str(start), str(end)))
 
         return self.curr_view, topic_vector
+
+    def consume_bulk_data(self, start, end):
+        """This func is called via RPC by another broker. Usually called when
+        a broker needs to get "up to speed" with some new topics it is
+        responsible for.
+
+        Returns all topic data that fall in the range of start, end
+        """
+
+        # the data we want to return
+        data {}
+
+        # get the topics
+        topics = list(self.topics.keys())
+
+        # find which belong to you
+        for topic in topics:
+            t_hash = chord_hash(topic)
+            # if the hash is in your primary range
+            if in_segment_range(t_hash, start, end):
+                # add the topic data to the data to be returned
+                data[topic] = self.topics[topic].consume(0)
+
+        return data
+
+
+    def get_replica_data(self, start, end):
+        # create rpc client
+        pred = find_chord_predecessor(self.my_address, self.brokers)
+        client = buildBrokerClient(pred.key)
+
+        # get the data
+        data = client.broker.consume_bulk_data(start, end)
+
+        # set local state
+        self.creation_lock.acquire()
+        for topic in data:
+            self.topics[topic] = data[topic]
+        self.creation_lock.release()
+
 
     # Control Methods ========================
 
@@ -160,11 +201,14 @@ class PubSubBroker:
                 self.manage_ring_update(ring)
                 # reset watch on Broker Registry in ZooKeeper
                 self.zk_client.get_children(BROKER_REG_PATH, watch=self.registry_callback)
+
             elif event.name == EventType.UPDATE_TOPICS:
                 segment = event.data[SEGMENT] # segment of chord ring in question
-                pred,_ = find_chord_predecessor(self.my_address, self.brokers)
+                pred, _ = find_chord_predecessor(self.my_address, self.brokers)
                 logging.warning("Broker {} is updating replicas with {} for segment[{}, {}]".format(
                     self.my_address, pred.key, str(segment[0]), str(segment[1])))
+                self.get_replica_data(segment[0], segment[1])
+
             elif event.name == EventType.VIEW_CHANGE:
                 segment = event.data[SEGMENT] # segment of chord ring in question
                 succ,_ = find_chord_successor(self.my_address, self.brokers)
@@ -322,6 +366,7 @@ def start_broker(zk_config_path, url):
     rpc_server.register_function(broker.enqueue_replica, "broker.enqueue_replica")
     rpc_server.register_function(broker.last_index, "broker.last_index")
     rpc_server.register_function(broker.consume, "broker.consume")
+    rpc_server.register_function(broker.consume_bulk_data, "broker.consume_bulk_data")
     rpc_server.register_function(broker.request_view_change, "broker.request_view_change")
     
     # Hidden RPCs to support REPL debugging
