@@ -10,7 +10,7 @@ from kazoo.exceptions import KazooException, OperationTimeoutError
 from kazoo.protocol.paths import join
 
 from chord_node import *
-from topic import OutOfOrderBuffer, Topic, indexed_enqueue
+from topic import Topic, consuming_enqueue 
 from event import *
 from zk_helpers import *
 from pubsubClient import buildBrokerClient
@@ -77,17 +77,14 @@ class PubSubBroker:
         r1Client = buildBrokerClient(repl1.key)
         r2Client = buildBrokerClient(repl2.key)
 
-        # TODO ideally you should do this concurrently 
-        next_index = self.last_index(topic)
-        success_one = r1Client.broker.enqueue_replica(topic, message, next_index)
-        success_two = r2Client.broker.enqueue_replica(topic, message, next_index)
+        # atomically assigns an index to the message 
+        message_index = self.topics[topic].publish(message)
         
-        # append to the end of the log
-        if success_one or success_two:
-            self.topics[topic].publish(message)
-            return True
-        
-        return False
+        # By construction, we assume at least one of these (TODO ideally concurrent) calls will succeed
+        success_one = r1Client.broker.enqueue_replica(topic, message, message_index)
+        success_two = r2Client.broker.enqueue_replica(topic, message, message_index)
+
+        return True
 
     def enqueue_replica(self, topic: str, message: str, index: int):
         if not self.operational: 
@@ -97,11 +94,13 @@ class PubSubBroker:
         self.creation_lock.acquire()
         if topic not in self.topics:
             self.topics[topic] = Topic(topic)
-            self.pending_buffers[topic] = OutOfOrderBuffer(topic)
         self.creation_lock.release() 
 
+        broker = find_chord_successor(topic, self.brokers)
+        broker_rpc_client = buildBrokerClient(broker[0].key)
+
         # attempts to move the commit point as aggressiively as possible
-        indexed_enqueue(self.topics[topic], self.pending_buffers[topic], message, index)
+        consuming_enqueue(self.topics[topic], broker_rpc_client, message, index)
         return True
 
     def last_index(self, topic: str):
@@ -115,6 +114,12 @@ class PubSubBroker:
         if not self.operational or not self.topics.get(topic, None):
             return []
         return self.topics[topic].consume(index)
+
+    def get_queue(self, topic):
+        return self.topics[topic].messages
+
+    def get_topics(self):
+        return [x for x in self.topics.keys()]
         
     def request_view_change(self, start: int, end: int):
         """This broker is being requested by another broker to perform a view change.
@@ -372,6 +377,10 @@ def start_broker(zk_config_path, url):
     rpc_server.register_function(broker.last_index, "broker.last_index")
     rpc_server.register_function(broker.consume, "broker.consume")
     rpc_server.register_function(broker.request_view_change, "broker.request_view_change")
+    
+    # Hidden RPCs to support REPL debugging
+    rpc_server.register_function(broker.get_queue, "broker.get_queue")
+    rpc_server.register_function(broker.get_topics, "broker.get_topics")
 
     # Control Broker management
     service_thread = threading.Thread(target=broker.serve) 
