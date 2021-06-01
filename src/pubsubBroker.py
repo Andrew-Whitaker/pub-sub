@@ -10,7 +10,7 @@ from kazoo.exceptions import KazooException, OperationTimeoutError
 from kazoo.protocol.paths import join
 
 from chord_node import *
-from topic import OutOfOrderBuffer, Topic, consuming_enqueue 
+from topic import Topic, consuming_enqueue 
 from event import *
 from zk_helpers import *
 from pubsubClient import buildBrokerClient
@@ -86,7 +86,6 @@ class PubSubBroker:
         self.creation_lock.acquire()
         if topic not in self.topics:
             self.topics[topic] = Topic(topic)
-            self.pending_buffers[topic] = OutOfOrderBuffer(topic)
         self.creation_lock.release() 
 
         broker = find_chord_successor(topic, self.brokers)
@@ -107,6 +106,12 @@ class PubSubBroker:
         if not self.operational or topic not in self.topics:
             return []
         return self.topics[topic].consume(index)
+
+    def get_queue(self, topic):
+        return self.topics[topic].messages
+
+    def get_topics(self):
+        return [x for x in self.topics.keys()]
         
     def request_view_change(self, start: int, end: int):
         """This broker is being requested by another broker to perform a view change.
@@ -318,6 +323,10 @@ def start_broker(zk_config_path, url):
     rpc_server.register_function(broker.last_index, "broker.last_index")
     rpc_server.register_function(broker.consume, "broker.consume")
     rpc_server.register_function(broker.request_view_change, "broker.request_view_change")
+    
+    # Hidden RPCs to support REPL debugging
+    rpc_server.register_function(broker.get_queue, "broker.get_queue")
+    rpc_server.register_function(broker.get_topics, "broker.get_topics")
 
     # Control Broker management
     service_thread = threading.Thread(target=broker.serve) 

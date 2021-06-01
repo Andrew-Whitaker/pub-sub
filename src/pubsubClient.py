@@ -66,6 +66,13 @@ class PubSubClient:
         broker_rpc = buildBrokerClient(broker[0].key)
         return broker_rpc.broker.consume(topic, index)
 
+    def primary(self, topic):
+        broker = find_chord_successor(topic, self.brokers)
+        return broker
+
+    def fetch_brokers(self):
+        return self.brokers
+
     #==============================
     # Private Methods
 
