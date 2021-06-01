@@ -159,7 +159,10 @@ def segment_range(start, end):
         return (MAX_HASH - start) + (end + 1)
 
 def in_segment_range(value, start, end):
-    return value >= start and value <= end
+    if start <= end:
+        return value >= start and value <= end
+    else:
+        return value >= start or value <= end
 
 # Retrieve the Index of Broker in the Chord Ring
 def my_ring_index(chord_ring, my_address):

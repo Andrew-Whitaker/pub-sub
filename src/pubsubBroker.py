@@ -54,12 +54,14 @@ class PubSubBroker:
 
     def enqueue(self, topic: str, message: str):
         if not self.operational:
+            print("Not Operational")
             return False
 
         topic_hash = chord_hash(topic)
         my_job = in_segment_range(topic_hash, self.primary_segment[0], self.primary_segment[1])
         blocked = in_segment_range(topic_hash, self.temp_block_segment[0], self.temp_block_segment[1])
         if not my_job or blocked:
+            print("Not My Job ({}) or Blocked ({})".format(not my_job, blocked))
             return False
         
         # protect against contention when creating topics 
@@ -69,20 +71,20 @@ class PubSubBroker:
                 self.topics[topic] = Topic(topic)
             self.creation_lock.release()
 
+        # atomically assigns an index to the message 
+        message_index = self.topics[topic].publish(message)
+        
         # who are my successors
         repl1, repl1_index = find_chord_successor(self.my_address, self.brokers)
         repl2, repl2_index = find_chord_successor(repl1.key, self.brokers, repl1_index)
 
-        # create a client for each of the replicas
-        r1Client = buildBrokerClient(repl1.key)
-        r2Client = buildBrokerClient(repl2.key)
+        if repl1.key != self.my_address:
+            r1Client = buildBrokerClient(repl1.key)
+            success_one = r1Client.broker.enqueue_replica(topic, message, message_index)
 
-        # atomically assigns an index to the message 
-        message_index = self.topics[topic].publish(message)
-        
-        # By construction, we assume at least one of these (TODO ideally concurrent) calls will succeed
-        success_one = r1Client.broker.enqueue_replica(topic, message, message_index)
-        success_two = r2Client.broker.enqueue_replica(topic, message, message_index)
+        if repl2.key != self.my_address:
+            r2Client = buildBrokerClient(repl2.key)
+            success_two = r2Client.broker.enqueue_replica(topic, message, message_index)     
 
         return True
 
@@ -304,6 +306,7 @@ class PubSubBroker:
         # Loop Through topics and update local topic queues
         for name, global_next_index in topics.items():
             self.update_topic(name, global_next_index, rpc_primary)
+            print("Updating topic: {} until {}".format(name, str(global_next_index)))
         
 
     def update_topic(self, topic_name: str, goal_index: int, rpc_broker):
@@ -317,7 +320,7 @@ class PubSubBroker:
         my_next_index = self.topics[topic_name].next_index()
         # Consume data from other broker until you've reached global next index
         while goal_index > my_next_index:
-            partial_log = rpc_broker.broker.consumer(topic_name, my_next_index)
+            partial_log = rpc_broker.broker.consume(topic_name, my_next_index)
             for message in partial_log:
                 self.topics[topic_name].publish(message)
             my_next_index = self.topics[topic_name].next_index()
