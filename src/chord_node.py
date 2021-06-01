@@ -73,7 +73,7 @@ def find_chord_predecessor(key: str, chord_ring, index: int = None):
     if len(chord_ring) == 0:
         return None, -1
 
-    if index != None:
+    if index != None and index >= 0:
         pred_index = predecessor_index(index, len(chord_ring))
         return chord_ring[pred_index], pred_index
 
@@ -115,7 +115,7 @@ def find_repl_chord_segment(address: str, chord_ring):
     # pred1 is immediate predecessor of address
     pred1, pred1_index = find_chord_predecessor(address, chord_ring)
     # pred2 is the predeccesor of pred1
-    pred2, pred2_index = find_chord_predecessor(pred1.key, chord_ring)
+    pred2, pred2_index = find_chord_predecessor(pred1.key, chord_ring, pred1_index)
 
     repl_start = -1
     repl_end = -1
@@ -157,6 +157,9 @@ def segment_range(start, end):
         return (end - start + 1)
     else:
         return (MAX_HASH - start) + (end + 1)
+
+def in_segment_range(value, start, end):
+    return value >= start and value <= end
 
 # Retrieve the Index of Broker in the Chord Ring
 def my_ring_index(chord_ring, my_address):
