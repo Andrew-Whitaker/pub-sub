@@ -1,20 +1,22 @@
 import sys
 
 from zk_helpers import get_zookeeper_hosts
-from pubsubClient import PubSubClient
+from pubsubClient import PubSubClient, buildBrokerClient
+
 
 # ===== REPL ENVIRONMENT =====
 class REPLEnv: 
     def __init__(self):
         self.target = None
+        self.broker_rpc_client = None
         self.topics = {}
 
     def single_node_mode(self):
         return self.target != None
-
+        
     def set_index(self, topic, new_index): 
         self.topics[topic] = new_index
-
+    
     def get_index(self, topic): 
         if topic not in self.topics:
             return 0
@@ -22,14 +24,16 @@ class REPLEnv:
 
 # ===== END REPL ENVIRONMENT =====
 
+# TODO fix this shit code
 def parse_args(string):
     remaining = string.strip()
+    if '"' not in remaining:
+        return [x.strip() for x in remaining.split(" ")]
     quotes_indices = [pos for pos, char in enumerate(remaining) if char == '"']
     if len(quotes_indices) % 2 != 0:
         raise Exception("Invalid use of quotations")
     pairs = [(quotes_indices[i]+1, quotes_indices[i+1]) for i in range(0, len(quotes_indices), 2)]
-    start = 0
-    args = []
+    start, args = 0, []
     for i, p in enumerate(pairs):
         if p[0] - start > 0:
             [args.append(x.strip()) for x in remaining[start:p[0]-1].split(" ") if x != ""]
@@ -39,9 +43,10 @@ def parse_args(string):
         start = p[1] + 1
     return args
 
-# TODO Clean up the command parser, do a little more testing verify
 def parse_line(line): 
     tokens = parse_args(line)
+    if len(tokens) < 1:
+        return
     cmd = tokens[0]
     if cmd == "publish": 
         if len(tokens) != 3:
@@ -50,22 +55,42 @@ def parse_line(line):
         return Publish(topic.strip(), message.strip())
     elif cmd == "consume":
         if len(tokens) == 2:
-            topic, index = remaining.strip(), None
+            topic, index = tokens[1], None
         elif len(tokens) == 3:
             topic, index = tokens[1], tokens[2]
             if not index.isdigit():
-                raise Exception("usage: publish <topic> <message>")
+                print("Erro: usage: publish <topic> <message>")
+                return None
         else:
-            
+            print("Error: usage: publish <topic> <message>")
+            return None
+        index = int(index) if index is not None else None
         return Consume(topic, index)
     elif cmd == "brokers":
         return Brokers()
     elif cmd == "primary":
-        topic = remaining.strip().split(" ", 1)[0]
+        if len(tokens) != 2:
+            print("Error: usage: primary <topic>")
+            return None 
+        topic = tokens[1]
         return Primary(topic.strip())
     elif cmd == "target":
-        address = remaining.strip()
+        if len(tokens) != 2:
+            print("usage: target <address>")      
+            return None 
+        address = tokens[1]
         return Target(address) 
+    elif cmd == "get_topics":
+        if len(tokens) != 1:
+            print("Error usage: get_topics")      
+            return None 
+        return GetTopics() 
+    elif cmd == "get_queue":
+        if len(tokens) != 2:
+            print("usage (in target): get_queue <topic>")      
+            return None 
+        topic = tokens[1]
+        return GetQueue(topic) 
     elif cmd == "q":
         return Quit()
         
@@ -93,12 +118,27 @@ def perform(client, env, action):
         return True
     if isinstance(action, Target):
         env.target = action.address
+        env.broker_rpc_client = buildBrokerClient(env.target)
         return True
     if isinstance(action, Quit): 
         if env.single_node_mode():
             env.target = None
+            env.broker_rpc_client = None
             return True
         return False
+    if isinstance(action, GetTopics): 
+        if not env.single_node_mode():
+            print("Error: must target a single broker")
+            return True
+        topics = env.broker_rpc_client.broker.get_topics()
+        print("\n".join(topics))
+        return True
+    if isinstance(action, GetQueue): 
+        if not env.single_node_mode():
+            print("Error: must target a single broker")
+            return True
+        print(env.broker_rpc_client.broker.get_queue(action.topic))
+        return True
     return True
 
 def main(zookeeper_addresses):
@@ -161,6 +201,22 @@ class Primary:
     def __eq__(self, obj):
         return isinstance(obj, Primary) and self.topic == obj.topic
 
+class GetTopics: 
+    def __init__(self):
+        pass
+    def __str__(self):
+        return "GetTopics()"
+    def __eq__(self, obj):
+        return isinstance(obj, GetTopics)
+
+class GetQueue: 
+    def __init__(self, topic):
+        self.topic = topic
+    def __str__(self):
+        return "GetQueue()"
+    def __eq__(self, obj):
+        return isinstance(obj, GetQueue) and self.topic == obj.topic
+
 # ========= END REPL AST =========
 
 if __name__ == "__main__":
@@ -169,5 +225,4 @@ if __name__ == "__main__":
         exit(1)
     zk_config_path = sys.argv[1]
     zk_hosts = get_zookeeper_hosts(zk_config_path)
-    print("CSE 223B PubSub REPL")
     main(zk_hosts)
