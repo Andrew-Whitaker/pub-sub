@@ -29,7 +29,7 @@ class Topic:
     def consume(self, index):
         if index < 0: 
             index = 0
-        elif index > len(self.messages):
+        elif index >= len(self.messages):
             return []
         return self.messages[index:]
     

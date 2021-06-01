@@ -43,6 +43,7 @@ class PubSubBroker:
         # Topic Responsibilities
         self.primary_segment = (-1,-1) 
         self.replica_segment = (-1,-1)
+        self.temp_block_segment = (-1, -1) # chord segment that this Broker should service (View Change)
 
         # Topic data structures 
         self.creation_lock = threading.Lock() # lock for when Broker needs to create a topic
@@ -53,28 +54,37 @@ class PubSubBroker:
 
     def enqueue(self, topic: str, message: str):
         if not self.operational:
+            print("Not Operational")
+            return False
+
+        topic_hash = chord_hash(topic)
+        my_job = in_segment_range(topic_hash, self.primary_segment[0], self.primary_segment[1])
+        blocked = in_segment_range(topic_hash, self.temp_block_segment[0], self.temp_block_segment[1])
+        if not my_job or blocked:
+            print("Not My Job ({}) or Blocked ({})".format(not my_job, blocked))
             return False
         
         # protect against contention when creating topics 
-        self.creation_lock.acquire()
-        if topic not in self.topics:
-            self.topics[topic] = Topic(topic)
-        self.creation_lock.release()
+        if not self.topics.get(topic, None):
+            self.creation_lock.acquire()
+            if not self.topics.get(topic, None):
+                self.topics[topic] = Topic(topic)
+            self.creation_lock.release()
+
+        # atomically assigns an index to the message
+        message_index = self.topics[topic].publish(message)
 
         # who are my successors
         repl1, repl1_index = find_chord_successor(self.my_address, self.brokers)
         repl2, repl2_index = find_chord_successor(repl1.key, self.brokers, repl1_index)
 
-        # create a client for each of the replicas
-        r1Client = buildBrokerClient(repl1.key)
-        r2Client = buildBrokerClient(repl2.key)
+        if repl1.key != self.my_address:
+            r1Client = buildBrokerClient(repl1.key)
+            success_one = r1Client.broker.enqueue_replica(topic, message, message_index)
 
-        # atomically assigns an index to the message 
-        message_index = self.topics[topic].publish(message)
-        
-        # By construction, we assume at least one of these (TODO ideally concurrent) calls will succeed
-        success_one = r1Client.broker.enqueue_replica(topic, message, message_index)
-        success_two = r2Client.broker.enqueue_replica(topic, message, message_index)
+        if repl2.key != self.my_address:
+            r2Client = buildBrokerClient(repl2.key)
+            success_two = r2Client.broker.enqueue_replica(topic, message, message_index)
 
         return True
 
@@ -103,7 +113,7 @@ class PubSubBroker:
         return self.topics[topic].next_index() 
 
     def consume(self, topic: str, index: int):
-        if not self.operational or topic not in self.topics:
+        if not self.operational or not self.topics.get(topic, None):
             return []
         return self.topics[topic].consume(index)
 
@@ -124,11 +134,18 @@ class PubSubBroker:
         index of the queue that it can begin pushing messages to.
         
         """
-        topic_vector = {} # Example: {"sport": 13, "politics": 98} # (topic_name, index)
-        # Go through topic queus and perform proper operations
-
         logging.warning("Broker {} is blocking requests for [{},{}]".format(
             self.my_address, str(start), str(end)))
+
+        # 1) Change Temp Blocked Segment Range
+        self.temp_block_segment = (start, end)
+
+        # 2) Fill in Topic Vector Map with Next Available Index
+        topic_vector = {} # Example: {"sport": 13, "politics": 98} # (topic_name, index)
+        for name, topic in self.topics.items():
+            # only add topic queues from this segment
+            if in_segment_range(chord_hash(name), start, end):
+                topic_vector[name] = topic.next_index()
 
         return self.curr_view, topic_vector
 
@@ -155,22 +172,6 @@ class PubSubBroker:
                 data[topic] = self.topics[topic].consume(0)
 
         return data
-
-
-    def get_replica_data(self, start, end):
-        # create rpc client
-        pred = find_chord_predecessor(self.my_address, self.brokers)
-        client = buildBrokerClient(pred.key)
-
-        # get the data
-        data = client.broker.consume_bulk_data(start, end)
-
-        # set local state
-        self.creation_lock.acquire()
-        for topic in data:
-            self.topics[topic] = data[topic]
-        self.creation_lock.release()
-
 
     # Control Methods ========================
 
@@ -205,9 +206,7 @@ class PubSubBroker:
             elif event.name == EventType.UPDATE_TOPICS:
                 segment = event.data[SEGMENT] # segment of chord ring in question
                 pred, _ = find_chord_predecessor(self.my_address, self.brokers)
-                logging.warning("Broker {} is updating replicas with {} for segment[{}, {}]".format(
-                    self.my_address, pred.key, str(segment[0]), str(segment[1])))
-                self.get_replica_data(segment[0], segment[1])
+                self.perform_replica_sync(segment, pred)
 
             elif event.name == EventType.VIEW_CHANGE:
                 segment = event.data[SEGMENT] # segment of chord ring in question
@@ -248,6 +247,10 @@ class PubSubBroker:
             # set up RPC-client
             broker_rpc = buildBrokerClient(curr_primary.key)
             prev_view, topic_vector = broker_rpc.broker.request_view_change(start, end)
+
+            # do something with the Topic Vector
+            self.prepare_as_primary(topic_vector)
+
         else:
             prev_view = 0
         
@@ -260,18 +263,19 @@ class PubSubBroker:
 
         
     def join_cluster(self):
-        try:           
+        try:
+            # enable RPC requests to come through
+            self.operational = True
+
             # create a watch and a new node for this broker
             self.zk_client.ensure_path(BROKER_REG_PATH)
             self.zk_client.get_children(BROKER_REG_PATH, watch=self.registry_callback)
             my_path = BROKER_REG_PATH + "/{}".format(self.my_address)
             self.my_znode = self.zk_client.create(my_path, value="true".encode("utf-8"), ephemeral=True)
 
-            # enable RPC requests to come through
-            self.operational = True
-
         except Exception as e:
             logging.warning("Join Cluster error: {}".format(e))
+            self.operational = False
             time.sleep(1)
             self.event_queue.put(ControlEvent(EventType.RESTART_BROKER))
 
@@ -285,6 +289,7 @@ class PubSubBroker:
         # Detect if this broker should respond to changes in its Primary segment
         # np_start => new primary start    cp_start => current primary start
         np_start, np_end = find_prime_chord_segment(self.my_address, updated_ring)
+        print(np_start, " -- ", np_end)
         (cp_start, cp_end) = self.primary_segment
 
         curr_range = segment_range(cp_start, cp_end)
@@ -319,11 +324,57 @@ class PubSubBroker:
         self.replica_segment = (nr_start, nr_end)
         return
 
-    def perform_view_change_sync(self, segment, predecessor):
-        if self.my_address != predecessor.key:
+    # Given a topic map of topics that need updating, reach out to
+    def prepare_as_primary(self, topics):
+        # Find Current Primary of the segment that you'll use to get up to date
+        curr_primary, _ = find_chord_successor(self.my_address, self.brokers)
+        rpc_primary = buildBrokerClient(curr_primary.key)
+
+        # Loop Through topics and update local topic queues
+        for name, global_next_index in topics.items():
+            self.update_topic(name, global_next_index, rpc_primary)
+            print("Updating topic: {} until {}".format(name, str(global_next_index)))
+
+
+    def update_topic(self, topic_name: str, goal_index: int, rpc_broker):
+        # Create Topic if it doesn't already exist
+        if not self.topics.get(topic_name, None):
+            self.creation_lock.acquire()
+            if not self.topics.get(topic_name, None):
+                self.topics[topic_name] = Topic(topic_name)
+            self.creation_lock.release()
+        # Get Next Index that this broker needs locally
+        my_next_index = self.topics[topic_name].next_index()
+        # Consume data from other broker until you've reached global next index
+        while goal_index > my_next_index:
+            partial_log = rpc_broker.broker.consume(topic_name, my_next_index)
+            for message in partial_log:
+                self.topics[topic_name].publish(message)
+            my_next_index = self.topics[topic_name].next_index()
+
+
+    def perform_view_change_sync(self, segment, successor):
+        if self.my_address != successor.key:
             logging.warning("Broker {} is performing view change with {} for segment[{}, {}]".format(
-                    self.my_address, predecessor.key, str(segment[0]), str(segment[1])))
+                    self.my_address, successor.key, str(segment[0]), str(segment[1])))
         return
+
+    def perform_replica_sync(self, segment, predecessor):
+        if segment[0] != -1 and segment[1] != -1:
+            logging.warning("Broker {} is updating replicas with {} for segment[{}, {}]".format(
+                    self.my_address, predecessor.key, str(segment[0]), str(segment[1])))
+
+            # create rpc client
+            client = buildBrokerClient(predecessor.key)
+
+            # get the data
+            data = client.broker.consume_bulk_data(segment[0], segment[1])
+
+            # set local state
+            self.creation_lock.acquire()
+            for topic in data:
+                self.topics[topic] = data[topic]
+            self.creation_lock.release()
 
     def registry_callback(self, watch_event):
         # build updated chord ring
