@@ -10,7 +10,7 @@ from kazoo.exceptions import KazooException, OperationTimeoutError
 from kazoo.protocol.paths import join
 
 from chord_node import *
-from topic import OutOfOrderBuffer, Topic, indexed_enqueue
+from topic import OutOfOrderBuffer, Topic, consuming_enqueue 
 from event import *
 from zk_helpers import *
 from pubsubClient import buildBrokerClient
@@ -69,17 +69,14 @@ class PubSubBroker:
         r1Client = buildBrokerClient(repl1.key)
         r2Client = buildBrokerClient(repl2.key)
 
-        # TODO ideally you should do this concurrently 
-        next_index = self.last_index(topic)
-        success_one = r1Client.broker.enqueue_replica(topic, message, next_index)
-        success_two = r2Client.broker.enqueue_replica(topic, message, next_index)
+        # atomically assigns an index to the message 
+        message_index = self.topics[topic].publish(message)
         
-        # append to the end of the log
-        if success_one or success_two:
-            self.topics[topic].publish(message)
-            return True
-        
-        return False
+        # By construction, we assume at least one of these (TODO ideally concurrent) calls will succeed
+        success_one = r1Client.broker.enqueue_replica(topic, message, message_index)
+        success_two = r2Client.broker.enqueue_replica(topic, message, message_index)
+
+        return True
 
     def enqueue_replica(self, topic: str, message: str, index: int):
         if not self.operational: 
@@ -92,8 +89,11 @@ class PubSubBroker:
             self.pending_buffers[topic] = OutOfOrderBuffer(topic)
         self.creation_lock.release() 
 
+        broker = find_chord_successor(topic, self.brokers)
+        broker_rpc_client = buildBrokerClient(broker[0].key)
+
         # attempts to move the commit point as aggressiively as possible
-        indexed_enqueue(self.topics[topic], self.pending_buffers[topic], message, index)
+        consuming_enqueue(self.topics[topic], broker_rpc_client, message, index)
         return True
 
     def last_index(self, topic: str):
