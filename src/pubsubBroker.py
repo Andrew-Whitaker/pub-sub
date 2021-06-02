@@ -93,10 +93,11 @@ class PubSubBroker:
             return False
         
         # protect against contention when creating topics 
-        self.creation_lock.acquire()
-        if topic not in self.topics:
-            self.topics[topic] = Topic(topic)
-        self.creation_lock.release() 
+        if not self.topics.get(topic, None):
+            self.creation_lock.acquire()
+            if not self.topics.get(topic, None):
+                self.topics[topic] = Topic(topic)
+            self.creation_lock.release() 
 
         broker = find_chord_successor(topic, self.brokers)
         broker_rpc_client = buildBrokerClient(broker[0].key)
@@ -108,7 +109,7 @@ class PubSubBroker:
     def last_index(self, topic: str):
         if not self.operational:
             return -1 
-        if topic not in self.topics:
+        if not self.topics.get(topic, None):
             return 0
         return self.topics[topic].next_index() 
 

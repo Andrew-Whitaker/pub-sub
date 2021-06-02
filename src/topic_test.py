@@ -1,6 +1,6 @@
 import unittest
 
-from topic import OutOfOrderBuffer, Topic, consuming_enqueue
+from topic import Topic, consuming_enqueue
 
 class _Broker:
     def __init__(self,  topic: str, topic_messages):        

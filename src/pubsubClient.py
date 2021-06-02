@@ -33,7 +33,6 @@ class PubSubClient:
             print("Broker Watch: {}".format(", ".join(formatted)))
             # print("Responsible for view change: {}".format(str(predecessor_changed)))
 
-        # SUCH A BAD HACK. I NEED THE FIRST BROKER RING AND TO SET THE WATCH
         # TODO: Remove duplicated code and get rid of this inline function
         updated_brokers = [] # array of addresses
         # Notice that we need to reregister the watch
@@ -43,28 +42,31 @@ class PubSubClient:
         # build updated Chord Ring
         self.brokers = create_chord_ring(updated_brokers)
 
-    def create_topic(self):
-        # can this just be nothing?
-        pass
-
-    def delete_topic(self):
-        pass
-
-    def topic_exists(self):
-        pass
-
     def publish(self, topic: str, message: str):
-        # Find the right Broker
-        broker = find_chord_successor(topic, self.brokers)
-        # set up RPC-client
-        broker_rpc = buildBrokerClient(broker[0].key)
-        # Send message
-        return broker_rpc.broker.enqueue(topic, message)
+        published = False
+        while not published:
+            try: 
+                # Find the right Broker
+                broker = find_chord_successor(topic, self.brokers)
+                # set up RPC-client
+                broker_rpc = buildBrokerClient(broker[0].key)
+                # Send message
+                published = broker_rpc.broker.enqueue(topic, message)
+                if published: return True
+            except Exception as e:
+                pass
+            time.sleep(1)
+
 
     def consume(self, topic: str, index: int):
-        broker = find_chord_successor(topic, self.brokers)
-        broker_rpc = buildBrokerClient(broker[0].key)
-        return broker_rpc.broker.consume(topic, index)
+        while True:
+            try: 
+                broker = find_chord_successor(topic, self.brokers)
+                broker_rpc = buildBrokerClient(broker[0].key)
+                return broker_rpc.broker.consume(topic, index)
+            except Exception as e:
+                pass
+            time.sleep(1)
 
     def primary(self, topic):
         broker = find_chord_successor(topic, self.brokers)
