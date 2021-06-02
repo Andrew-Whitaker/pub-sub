@@ -158,7 +158,7 @@ class PubSubBroker:
         """
 
         # the data we want to return
-        data {}
+        data = {}
 
         # get the topics
         topics = list(self.topics.keys())
