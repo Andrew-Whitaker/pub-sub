@@ -1,9 +1,11 @@
 from kazoo.client import KazooClient
 import xmlrpc.client
-import sys
+import sys, logging
 from zk_helpers import *
 from chord_node import *
 import time
+
+logging.basicConfig(level=logging.WARNING)
 
 class PubSubClient:
 
@@ -47,25 +49,27 @@ class PubSubClient:
         while not published:
             try: 
                 # Find the right Broker
-                broker = find_chord_successor(topic, self.brokers)
+                broker, _ = find_chord_successor(topic, self.brokers)
+                print("Client trying to publish to {}".format(broker.key))
                 # set up RPC-client
-                broker_rpc = buildBrokerClient(broker[0].key)
+                broker_rpc = buildBrokerClient(broker.key)
                 # Send message
                 published = broker_rpc.broker.enqueue(topic, message)
                 if published: return True
             except Exception as e:
-                pass
+                logging.warning(e)
             time.sleep(1)
 
 
     def consume(self, topic: str, index: int):
         while True:
             try: 
-                broker = find_chord_successor(topic, self.brokers)
-                broker_rpc = buildBrokerClient(broker[0].key)
+                broker, _ = find_chord_successor(topic, self.brokers)
+                print("Client trying to consume from {}".format(broker.key))
+                broker_rpc = buildBrokerClient(broker.key)
                 return broker_rpc.broker.consume(topic, index)
             except Exception as e:
-                pass
+                logging.warning(e)
             time.sleep(1)
 
     def primary(self, topic):

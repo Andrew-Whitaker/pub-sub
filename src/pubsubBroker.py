@@ -161,16 +161,13 @@ class PubSubBroker:
         # the data we want to return
         data = {}
 
-        # get the topics
-        topics = list(self.topics.keys())
-
         # find which belong to you
-        for topic in topics:
-            t_hash = chord_hash(topic)
+        for name, topic in self.topics.items():
+            t_hash = chord_hash(name)
             # if the hash is in your primary range
             if in_segment_range(t_hash, start, end):
                 # add the topic data to the data to be returned
-                data[topic] = self.topics[topic].consume(0)
+                data[name] = topic.consume(0)
 
         return data
 
