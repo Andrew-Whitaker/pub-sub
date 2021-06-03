@@ -15,14 +15,12 @@ def consuming_enqueue(topic, client, message, index):
 class Topic: 
     def __init__(self, name):
         self.lock = threading.Lock()
-        self.message_count = 0
         self.messages = []
         
     def publish(self, message):
         self.lock.acquire()
         self.messages.append(message)
-        result = self.message_count
-        self.message_count += 1
+        result = len(self.messages)
         self.lock.release()
         return result 
     
@@ -34,4 +32,7 @@ class Topic:
         return self.messages[index:]
     
     def next_index(self): 
-        return self.message_count
+        return len(self.messages)
+
+    def __str__(self):
+        return str(self.messages)

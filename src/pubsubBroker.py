@@ -368,10 +368,13 @@ class PubSubBroker:
             # get the data
             data = client.broker.consume_bulk_data(segment[0], segment[1])
 
-            # set local state
+            # set local state - create Topic objects and add them to our dict
             self.creation_lock.acquire()
             for topic in data:
-                self.topics[topic] = data[topic]
+                t_obj = Topic(topic)
+                t_obj.messages = data[topic]
+                self.topics[topic] = t_obj
+                #print("======\n{}\n{}\n======".format(type(self.topics[topic]), self.topics[topic]))
             self.creation_lock.release()
 
     def registry_callback(self, watch_event):
@@ -397,6 +400,54 @@ class PubSubBroker:
             self.event_queue.put(ControlEvent(EventType.RESUME_OPER))
         else:
             logging.warning("Kazoo Client detected an UNKNOWN state")
+
+    def cli(self):
+        while True:
+            ipt = input("\n> ")
+            tokens = ipt.split(" ")
+            cmd = tokens[0]
+            arg = None
+            if len(tokens) > 1:
+                arg = tokens[1]
+            if cmd == "ps":
+                print(self.primary_segment)
+            elif cmd == "rs":
+                print(self.replica_segment)
+            elif cmd == "topics":
+                val = list(self.topics.keys())
+                val.sort()
+                print(val)
+            elif cmd == "view":
+                print(self.curr_view)
+            elif cmd == "brokers":
+                print(self.brokers) # this doesn't pretty print?
+            elif cmd == "topic": # a specific topic
+                if arg:
+                    print(self.topics[arg].messages[-10:])
+                else: # all the topic values
+                    for topic in self.topics:
+                        print("{} : {}".format(topic, self.topics[topic].messages[-10:]))
+
+            elif cmd != "": #help
+                hint = "Available commands\n" + \
+                        "'ps' -> primary segment\n" + \
+                        "'rs' -> replica segment\n" + \
+                        "'topics' -> list of topics\n" + \
+                        "'topic x' -> last 10 messages in topic 'x'\n" + \
+                        "'view' -> current view number\n" + \
+                        "'brokers' -> list of all brokers"
+                print(hint)
+            # TODO cli
+            # - brokers in order of chord ring. Format to help viz-
+            #       node-1 (x,     y)
+            #       node-2 (y+1,   z)
+            #       node-3 (z+1, x-1)
+            # - primary topics (self._get_topics_primary())
+            # - replicated topics (self._get_topics_repl())
+
+            # Also if the terminal is getting too messy,
+            # redirect log output of all processes to a file and do "tail -f"
+
 
 def start_broker(zk_config_path, url):
     ip_addr = url.split(":")[0]
@@ -426,10 +477,15 @@ def start_broker(zk_config_path, url):
     service_thread = threading.Thread(target=broker.serve) 
     service_thread.start()
 
+    # CLI for debugging - will be messy due to log outputs
+    cli_thread = threading.Thread(target=broker.cli)
+    cli_thread.start()
+
     # Start Broker RPC Server
     rpc_server.serve_forever()
 
     service_thread.join()
+    cli_thread.join()
 
 
 if __name__ == "__main__":
@@ -441,7 +497,7 @@ if __name__ == "__main__":
 
     # Load up the the Broker configuration  
     # TODO: Yml or something would be cool if we feel like it
-    my_url = 'localhost:3000' 
+    my_url = 'localhost:3002'
     broker_config_path = sys.argv[1]
     zk_config_path = sys.argv[2]
 

@@ -114,7 +114,7 @@ if __name__ == "__main__":
     # Simple use of PS client to see that the connection to Brokers works
 
     for i in range(100):
-        psclient.publish(str(i) + "topic", "message")
+        psclient.publish("topic-"+f'{i:03d}', "message")
         time.sleep(1)
 
 
