@@ -19,7 +19,7 @@ class Publisher():
         # spawn a daemon thread for each topic provided
         for topic in self.topics:
             # Daemon threads will be terminated when the main thread terminates
-            topic_thread = threading.Thread(target=self.generate_events, args=(topic), daemon=True)
+            topic_thread = threading.Thread(target=self.generate_events, args=(topic,), daemon=True)
             topic_thread.start()
 
         time.sleep(timeout)
@@ -31,7 +31,9 @@ class Publisher():
             # create message & publish
             message = "T:{} - I:{} - M:{}".format(topic, str(self.myID), str(msg_id))
             self.psclient.publish(topic, message)
-            time.sleep(0.01)
+            logging.warning("published: " + message)
+            msg_id += 1
+            time.sleep(1)
 
 
 if __name__ == "__main__":
@@ -42,9 +44,9 @@ if __name__ == "__main__":
     print("Starting Publisher...")
 
     # ZooKeeper Config and PubSubClient
-    myID = sys.argv[1]
+    myID = int(sys.argv[1])
     zk_config_path = sys.argv[2]
-    topics = ["alpha", "bravo", "charlie", "delta", "echo"]
+    topics = ["alpha", "bravo", "charlie"]
     pub = Publisher(myID, topics, PubSubClient(get_zookeeper_hosts(zk_config_path)))
     
     # Run Publisher for 1 minute

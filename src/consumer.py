@@ -10,8 +10,7 @@ from chord_node import *
 
 class Consumer():
 
-    def __init__(self, myID: int, topics, psclient: PubSubClient) -> None:
-        self.myID = myID         # ID that it will add to all messages
+    def __init__(self, topics, psclient: PubSubClient) -> None:
         self.topics = topics     # List of topic names it will publish to
         self.psclient = psclient # PubSubClient
 
@@ -20,7 +19,7 @@ class Consumer():
         # spawn a daemon thread for each topic provided
         for topic in self.topics:
             # Daemon threads will be terminated when the main thread terminates
-            topic_thread = threading.Thread(target=self.consume_events, args=(topic), daemon=True)
+            topic_thread = threading.Thread(target=self.consume_events, args=(topic,), daemon=True)
             topic_thread.start()
 
         time.sleep(timeout)
@@ -32,9 +31,9 @@ class Consumer():
             # create message & publish
             messages = self.psclient.consume(topic, msg_id)
             for msg in messages:
-                logging.warning(msg)
+                logging.warning("consumed: " + msg)
                 msg_id += 1
-            time.sleep(0.01)
+            time.sleep(1)
 
 
 if __name__ == "__main__":

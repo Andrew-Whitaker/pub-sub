@@ -50,7 +50,6 @@ class PubSubClient:
             try: 
                 # Find the right Broker
                 broker, _ = find_chord_successor(topic, self.brokers)
-                print("Client trying to publish to {}".format(broker.key))
                 # set up RPC-client
                 broker_rpc = buildBrokerClient(broker.key)
                 # Send message
@@ -65,7 +64,6 @@ class PubSubClient:
         while True:
             try: 
                 broker, _ = find_chord_successor(topic, self.brokers)
-                print("Client trying to consume from {}".format(broker.key))
                 broker_rpc = buildBrokerClient(broker.key)
                 return broker_rpc.broker.consume(topic, index)
             except Exception as e:
