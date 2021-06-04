@@ -80,11 +80,11 @@ class PubSubBroker:
 
         if repl1.key != self.my_address:
             r1Client = buildBrokerClient(repl1.key)
-            success_one = r1Client.broker.enqueue_replica(topic, message, message_index)
+            success_one = r1Client.broker.enqueue_replica(topic, message, message_index - 1)
 
         if repl2.key != self.my_address:
             r2Client = buildBrokerClient(repl2.key)
-            success_two = r2Client.broker.enqueue_replica(topic, message, message_index)
+            success_two = r2Client.broker.enqueue_replica(topic, message, message_index - 1)
 
         return True
 
