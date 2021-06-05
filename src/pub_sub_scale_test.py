@@ -25,13 +25,26 @@ if __name__ == "__main__":
         print("Usage: python src/pub_sub_scale_test.py <zk_config> <no. publishers and consumers>") 
         exit(1)
 
+    procs = []
     duration = float(duration)
     for i in range(0, int(count)):
         topics = ["a{}".format(i)]
         hosts  = get_zookeeper_hosts(zk_config_path)
-        pubProcess = Process(target=run_publisher, args=(i, topics, hosts, duration))
-        consProcess  = Process(target=run_consumer, args=(i, topics, hosts, duration))
-
+        pubProcess = Process(target=run_publisher, args=(i, topics, hosts, duration, "logs/pubs/{}.txt".format(i)))
         pubProcess.start()
-        time.sleep(1)
+        procs.append(pubProcess)
+        time.sleep(2)
+        consProcess  = Process(target=run_consumer, args=(i, topics, hosts, duration, "logs/cons/{}.txt".format(i)))
         consProcess.start()
+        procs.append(consProcess)
+
+    [p.join() for p in procs]
+    for i in range(0, int(count)):
+        cons_log_file, pubs_log_file = open("logs/pubs/{}.txt".format(i)), open("logs/pubs/{}.txt".format(i))
+        cons_logs, pubs_logs = cons_log_file.readlines(), pubs_log_file.readlines()
+        for i, consumed_stream_data in enumerate(cons_logs):
+            print("Checking '{}'=='{}'".format(consumed_stream_data, pubs_logs[i]))
+            assert consumed_stream_data == pubs_logs[i]
+
+    print("Done. Stream integrity was maintained.")
+

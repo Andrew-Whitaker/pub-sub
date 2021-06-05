@@ -40,12 +40,15 @@ class Publisher():
             msg_id += 1
             time.sleep(0.1)
 
-def run_publisher(i, topics, hosts, duration):
+def run_publisher(i, topics, hosts, duration, log_file):
     print("Starting Publisher...")
     pubs = Publisher(i, topics, PubSubClient(hosts))
     pubs.run(duration)
-    with open("tmp/output/producer-{}.txt".format(i), "w") as f:
-        f.write(pubs.get_logs())
+    if log_file is None:
+        print(pubs.get_logs())
+    else:
+        with open(log_file, "w") as lf:
+            lf.write(pubs.get_logs())
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
@@ -58,7 +61,7 @@ if __name__ == "__main__":
     hosts = get_zookeeper_hosts(zk_config_path)
     topics = ["alpha", "bravo", "charlie"]
     duration = 60
-    run_publisher(myID, topics, hosts, duration)
+    run_publisher(myID, topics, hosts, duration, None)
 
     
         

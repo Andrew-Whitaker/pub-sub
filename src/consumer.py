@@ -42,12 +42,15 @@ class Consumer():
             result = result + "{}, {}, {}\n".format(topic, self.messages_consumed[topic], self.messages_digest[topic].hexdigest())
         return result
 
-def run_consumer(i, topics, hosts, duration):
+def run_consumer(i, topics, hosts, duration, log_file):
     print("Starting Consumer...")
     cons = Consumer(topics, PubSubClient(hosts))
     cons.run(duration)
-    with open("tmp/output/consumer-{}.txt".format(i), "w") as f:
-        f.write(cons.get_logs())
+    if log_file is None:
+        print(cons.get_logs())
+    else:
+        with open(log_file, "w") as lf:
+            lf.write(cons.get_logs())
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
@@ -60,4 +63,4 @@ if __name__ == "__main__":
     hosts = get_zookeeper_hosts(zk_config_path)
     duration = 60
     topics = ["alpha", "bravo", "charlie", "delta", "echo"]
-    run_consumer(i, topics, hosts, duration)
+    run_consumer(i, topics, hosts, duration, None)
