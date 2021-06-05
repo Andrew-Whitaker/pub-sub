@@ -35,5 +35,5 @@ def get_zookeeper_hosts(config_path):
                     zk_client_port = snd.strip()
 
     zk_hosts = ["{}:{}".format(z, zk_client_port) for z in zk_hosts]
-    print("Zookeepers:\t{}".format(", ".join(zk_hosts)))
+    # print("Zookeepers:\t{}".format(", ".join(zk_hosts)))
     return zk_hosts

@@ -487,25 +487,14 @@ def start_broker(zk_config_path, url):
     service_thread.join()
     cli_thread.join()
 
-
 if __name__ == "__main__":
     if len(sys.argv) != 3:
         print("Usage: python src/pubsubBroker.py <configuration_path> <zk_config>") 
         exit(1)
 
     print("Starting PubSub Broker...")
-
-    # Load up the the Broker configuration  
-    # TODO: Yml or something would be cool if we feel like it
-    my_url = 'localhost:3002'
-    broker_config_path = sys.argv[1]
+    broker_address = sys.argv[1]
     zk_config_path = sys.argv[2]
 
-    exists = os.path.isfile(broker_config_path) 
-    if exists:
-        with open(broker_config_path, "r") as f:
-            broker_conf_array = f.readlines()
-            my_url = broker_conf_array[0].strip() # Smh
-
     # Display the loaded configuration
-    start_broker(zk_config_path, my_url)
+    start_broker(zk_config_path, broker_address)

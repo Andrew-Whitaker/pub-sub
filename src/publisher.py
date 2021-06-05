@@ -6,51 +6,59 @@ from zk_helpers import get_zookeeper_hosts, makeHostsString
 from pubsubClient import PubSubClient
 from chord_node import *
 
-
 class Publisher():
 
     def __init__(self, myID: int, topics, psclient: PubSubClient) -> None:
-        self.myID = myID         # ID that it will add to all messages
-        self.topics = topics     # List of topic names it will publish to
-        self.psclient = psclient # PubSubClient
+        self.myID = myID             # ID that it will add to all messages
+        self.topics = topics         # List of topic names it will publish to
+        self.psclient = psclient     # PubSubClient 
+        self.messages_published = {}  # List of messages published by this publisher
+        self.messages_digest = {}    # Hash digest of the messages published on this topic
 
     def run(self, timeout: int):
-
-        # spawn a daemon thread for each topic provided
         for topic in self.topics:
-            # Daemon threads will be terminated when the main thread terminates
+            self.messages_published[topic] = 0
+            self.messages_digest[topic] = hashlib.sha256()
             topic_thread = threading.Thread(target=self.generate_events, args=(topic,), daemon=True)
             topic_thread.start()
-
         time.sleep(timeout)
         return
+
+    def get_logs(self):
+        result = ""
+        for topic in self.topics:
+            result = result + "{}, {}, {}\n".format(topic, self.messages_published[topic], self.messages_digest[topic].hexdigest())
+        return result
 
     def generate_events(self, topic):
         msg_id = 0
         while True:
-            # create message & publish
-            message = "T:{} - I:{} - M:{}".format(topic, str(self.myID), str(msg_id))
+            message = "{}:{}".format(topic, str(msg_id))
             self.psclient.publish(topic, message)
-            logging.warning("published: " + message)
+            self.messages_published[topic] += 1
+            self.messages_digest[topic].update(message.encode('utf-8'))
             msg_id += 1
-            time.sleep(1)
+            time.sleep(0.1)
 
+def run_publisher(i, topics, hosts, duration):
+    print("Starting Publisher...")
+    pubs = Publisher(i, topics, PubSubClient(hosts))
+    pubs.run(duration)
+    with open("tmp/output/producer-{}.txt".format(i), "w") as f:
+        f.write(pubs.get_logs())
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
         print("Usage: python src/publisher.py <publisher ID> <zk_config>") 
         exit(1)
 
-    print("Starting Publisher...")
-
     # ZooKeeper Config and PubSubClient
     myID = int(sys.argv[1])
     zk_config_path = sys.argv[2]
+    hosts = get_zookeeper_hosts(zk_config_path)
     topics = ["alpha", "bravo", "charlie"]
-    pub = Publisher(myID, topics, PubSubClient(get_zookeeper_hosts(zk_config_path)))
-    
-    # Run Publisher for 1 minute
-    pub.run(60)
+    duration = 60
+    run_publisher(myID, topics, hosts, duration)
 
     
         
