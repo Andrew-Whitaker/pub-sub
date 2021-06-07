@@ -48,7 +48,7 @@ if __name__ == "__main__":
 
     [p.join() for p in procs]
     for i in range(0, int(count)):
-        cons_log_file, pubs_log_file = open("logs/pubs/{}.txt".format(i)), open("logs/pubs/{}.txt".format(i))
+        cons_log_file, pubs_log_file = open("logs/cons/{}.txt".format(i)), open("logs/pubs/{}.txt".format(i))
         cons_logs, pubs_logs = cons_log_file.readlines(), pubs_log_file.readlines()
         for i, consumed_stream_data in enumerate(cons_logs):
             print("Checking '{}'=='{}'".format(consumed_stream_data, pubs_logs[i]))
