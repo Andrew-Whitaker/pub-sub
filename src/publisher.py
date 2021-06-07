@@ -12,33 +12,44 @@ class Publisher():
         self.myID = myID             # ID that it will add to all messages
         self.topics = topics         # List of topic names it will publish to
         self.psclient = psclient     # PubSubClient 
+        self.messages = {}
         self.messages_published = {}  # List of messages published by this publisher
         self.messages_digest = {}    # Hash digest of the messages published on this topic
 
     def run(self, timeout: int):
+        threads = []
         for topic in self.topics:
+            self.messages[topic] = []
             self.messages_published[topic] = 0
             self.messages_digest[topic] = hashlib.sha256()
-            topic_thread = threading.Thread(target=self.generate_events, args=(topic,), daemon=True)
+            topic_thread = threading.Thread(target=self.generate_events, args=(topic, timeout), daemon=True)
             topic_thread.start()
-        time.sleep(timeout)
+            threads.append(topic_thread)
+        [t.join() for t in threads]
         return
 
     def get_logs(self):
         result = ""
         for topic in self.topics:
             result = result + "{}, {}, {}\n".format(topic, self.messages_published[topic], self.messages_digest[topic].hexdigest())
+            result += "\n".join(["{}: {}".format(i, x) for i, x in enumerate(self.messages[topic])])
         return result
 
-    def generate_events(self, topic):
+    def generate_events(self, topic, timeout):
+        elapsed = 0.0
         msg_id = 0
         while True:
+            start = time.time()
             message = "{}:{}".format(topic, str(msg_id))
             self.psclient.publish(topic, message)
+            self.messages[topic].append(message)
             self.messages_published[topic] += 1
             self.messages_digest[topic].update(message.encode('utf-8'))
             msg_id += 1
-            time.sleep(0.1)
+            time.sleep(0.01)
+            elapsed += time.time() - start
+            if elapsed > timeout:
+                break
 
 def run_publisher(i, topics, hosts, duration, log_file):
     print("Starting Publisher...")

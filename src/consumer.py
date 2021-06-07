@@ -13,33 +13,45 @@ class Consumer():
     def __init__(self, topics, psclient: PubSubClient) -> None:
         self.topics = topics        # List of topic names it will publish to
         self.psclient = psclient    # PubSubClient
+
+        self.messages = {}
         self.messages_consumed = {} # List of messages published by this publisher
         self.messages_digest = {}   # Hash digest of the messages published on this topic
 
     def run(self, timeout: int):
         # spawn a daemon thread for each topic provided
+        threads = []
         for topic in self.topics:
+            self.messages[topic] = []
             self.messages_consumed[topic] = 0
             self.messages_digest[topic] = hashlib.sha256()
-            topic_thread = threading.Thread(target=self.consume_events, args=(topic,), daemon=True)
+            topic_thread = threading.Thread(target=self.consume_events, args=(topic, timeout), daemon=True)
             topic_thread.start()
-        time.sleep(timeout)
+            threads.append(topic_thread)
+        [t.join() for t in threads]
         return
 
-    def consume_events(self, topic):
+    def consume_events(self, topic, timeout):
+        elapsed = 0.0
         msg_id = 0
         while True:
+            start = time.time()
             messages = self.psclient.consume(topic, msg_id)
             for msg in messages:    
+                self.messages[topic].append(msg)
                 self.messages_consumed[topic] += 1
                 self.messages_digest[topic].update(msg.encode("utf-8"))
                 msg_id += 1
-            time.sleep(1)
+            time.sleep(0.1)
+            elapsed += time.time() - start
+            if elapsed > timeout:
+                break
 
     def get_logs(self):
         result = ""
         for topic in self.topics:
             result = result + "{}, {}, {}\n".format(topic, self.messages_consumed[topic], self.messages_digest[topic].hexdigest())
+            result += "\n".join(["{}: {}".format(i, x) for i, x in enumerate(self.messages[topic])])
         return result
 
 def run_consumer(i, topics, hosts, duration, log_file):

@@ -78,13 +78,25 @@ class PubSubBroker:
         repl1, repl1_index = find_chord_successor(self.my_address, self.brokers)
         repl2, repl2_index = find_chord_successor(repl1.key, self.brokers, repl1_index)
 
-        if repl1.key != self.my_address:
-            r1Client = buildBrokerClient(repl1.key)
-            success_one = r1Client.broker.enqueue_replica(topic, message, message_index - 1)
+        succ_one_exception = False
+        succ_two_exception = False
+        try:
+            if repl1.key != self.my_address:
+                r1Client = buildBrokerClient(repl1.key)
+                success_one = r1Client.broker.enqueue_replica(topic, message, message_index - 1)
+        except Exception as e:
+            succ_one_exception = True
 
-        if repl2.key != self.my_address:
-            r2Client = buildBrokerClient(repl2.key)
-            success_two = r2Client.broker.enqueue_replica(topic, message, message_index - 1)
+        try:
+            if repl2.key != self.my_address:
+                r2Client = buildBrokerClient(repl2.key)
+                success_two = r2Client.broker.enqueue_replica(topic, message, message_index - 1)
+        except Exception as e:
+            succ_two_exception = True
+
+        if succ_one_exception and succ_two_exception:
+            print("A PubSub Assumption Was Violated: Terminating this Broker")
+            exit(1)
 
         return True
 
