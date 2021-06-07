@@ -38,7 +38,7 @@ class Publisher():
             self.messages_published[topic] += 1
             self.messages_digest[topic].update(message.encode('utf-8'))
             msg_id += 1
-            time.sleep(0.1)
+            time.sleep(0.01)
 
 def run_publisher(i, topics, hosts, duration, log_file):
     print("Starting Publisher...")

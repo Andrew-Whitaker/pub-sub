@@ -131,3 +131,5 @@ dmypy.json
 # Local Zookeeper
 bin/
 apache-zookeeper-*/
+
+logs/
