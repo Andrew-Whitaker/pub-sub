@@ -6,18 +6,10 @@ def consuming_enqueue(topic, client, message, index):
         return
     elif index > next_expected:
         messages = client.broker.consume(topic.name, next_expected)
-        topic.lock.acquire()
-        expected_messages = (index - topic.topic.next_index()) + 1
-        if expected_messages == len(messages):
-            for m in messages:
-                topic.messages.append(message)
-        topic.lock.release()
-
+        for m in messages:
+            topic.publish(m)
     else:
-        topic.lock.acquire()
-        if topic.next_index() == index:
-            topic.publish(message)    
-        topic.lock.release()
+        topic.publish(message)    
 
 class Topic: 
     def __init__(self, name):

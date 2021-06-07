@@ -34,7 +34,7 @@ class Consumer():
                 self.messages_consumed[topic] += 1
                 self.messages_digest[topic].update(msg.encode("utf-8"))
                 msg_id += 1
-            time.sleep(0.1)
+            time.sleep(1)
 
     def get_logs(self):
         result = ""
