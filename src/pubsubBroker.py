@@ -401,50 +401,79 @@ class PubSubBroker:
         else:
             logging.warning("Kazoo Client detected an UNKNOWN state")
 
+    def primary_topics(self):
+        """Returns the list of topics this node is a primary for
+        """
+        pt = []
+        for t_name in self.topics:
+            t_hash = chord_hash(t_name)
+            if in_segment_range(t_hash, self.primary_segment[0], self.primary_segment[1]):
+                pt.append(t_name)
+
+        return pt
+
+    def replica_topics(self):
+        """Returns the list of topics this node is a replica for
+        """
+        pt = []
+        for t_name in self.topics:
+            t_hash = chord_hash(t_name)
+            if in_segment_range(t_hash, self.replica_segment[0], self.replica_segment[1]):
+                pt.append(t_name)
+        return pt
+
+        return data
     def cli(self):
         while True:
-            ipt = input("\n> ")
-            tokens = ipt.split(" ")
-            cmd = tokens[0]
-            arg = None
-            if len(tokens) > 1:
-                arg = tokens[1]
-            if cmd == "ps":
-                print(self.primary_segment)
-            elif cmd == "rs":
-                print(self.replica_segment)
-            elif cmd == "topics":
-                val = list(self.topics.keys())
-                val.sort()
-                print(val)
-            elif cmd == "view":
-                print(self.curr_view)
-            elif cmd == "brokers":
-                print(self.brokers) # this doesn't pretty print?
-            elif cmd == "topic": # a specific topic
-                if arg:
-                    print(self.topics[arg].messages[-10:])
-                else: # all the topic values
-                    for topic in self.topics:
-                        print("{} : {}".format(topic, self.topics[topic].messages[-10:]))
+            try:
+                ipt = input("\n> ")
+                tokens = ipt.split(" ")
+                cmd = tokens[0]
+                arg = None
+                if len(tokens) > 1:
+                    arg = tokens[1]
 
-            elif cmd != "": #help
-                hint = "Available commands\n" + \
-                        "'ps' -> primary segment\n" + \
-                        "'rs' -> replica segment\n" + \
-                        "'topics' -> list of topics\n" + \
-                        "'topic x' -> last 10 messages in topic 'x'\n" + \
-                        "'view' -> current view number\n" + \
-                        "'brokers' -> list of all brokers"
-                print(hint)
+                if cmd == "pseg":
+                    print(self.primary_segment)
+                elif cmd == "rseg":
+                    print(self.replica_segment)
+                elif cmd == "ptop":
+                    print(self.primary_topics())
+                elif cmd == "rtop":
+                    print(self.replica_topics())
+                elif cmd == "topics":
+                    val = list(self.topics.keys())
+                    val.sort()
+                    print(val)
+                elif cmd == "view":
+                    print(self.curr_view)
+                elif cmd == "brokers":
+                    print(self.brokers) # this doesn't pretty print?
+                elif cmd == "topic": # a specific topic
+                    if arg:
+                        print(self.topics[arg].messages[-10:])
+                    else: # all the topic values
+                        for topic in self.topics:
+                            print("{} : {}".format(topic, self.topics[topic].messages[-10:]))
+
+                elif cmd != "": #help
+                    hint = "Available commands\n" + \
+                            "'pseg' -> primary segment\n" + \
+                            "'rseg' -> replica segment\n" + \
+                            "'ptop' -> primary topic\n" + \
+                            "'rtop' -> replica topic\n" + \
+                            "'topics' -> list of topics\n" + \
+                            "'topic x' -> last 10 messages in topic 'x'\n" + \
+                            "'view' -> current view number\n" + \
+                            "'brokers' -> list of all brokers"
+                    print(hint)
+            except Exception as e:
+                print("Error:", e)
             # TODO cli
             # - brokers in order of chord ring. Format to help viz-
             #       node-1 (x,     y)
             #       node-2 (y+1,   z)
             #       node-3 (z+1, x-1)
-            # - primary topics (self._get_topics_primary())
-            # - replicated topics (self._get_topics_repl())
-
             # Also if the terminal is getting too messy,
             # redirect log output of all processes to a file and do "tail -f"
 
