@@ -1,10 +1,16 @@
 import sys
 import threading
 import time
+import datetime as dt
+import json
 
 from zk_helpers import get_zookeeper_hosts, makeHostsString
 from pubsubClient import PubSubClient
 from chord_node import *
+from stats import *
+
+STATS_TIME_FRAME = 1 # seconds
+STATS__TOPIC = "SYSTEM_STATS"
 
 class Publisher():
 
@@ -30,15 +36,42 @@ class Publisher():
             result = result + "{}, {}, {}\n".format(topic, self.messages_published[topic], self.messages_digest[topic].hexdigest())
         return result
 
+    # No Timestamps
+    # def generate_events(self, topic):
+    #     msg_id = 0
+    #     time_stamp = 0  
+    #     while True:
+    #         start_time = dt.datetime.now()
+    #         end_frame_time = start_time + dt.timedelta(seconds=1)
+    #         previous_msg_count = 0
+    #         while end_frame_time < dt.datetime.now():
+    #             message = "{}:{}".format(topic, str(msg_id))
+    #             self.psclient.publish(topic, message)
+    #             self.messages_published[topic] += 1
+    #             self.messages_digest[topic].update(message.encode('utf-8'))
+    #             msg_id += 1
+    #         stat_event = ThroughputStat(time_stamp, time_stamp+1, self.messages_published[topic] - previous_msg_count, topic)
+    #         self.psclient.publish(STATS__TOPIC, json.dumps(stat_event))
+
     def generate_events(self, topic):
         msg_id = 0
+        time_stamp = 0  
         while True:
-            message = "{}:{}".format(topic, str(msg_id))
-            self.psclient.publish(topic, message)
-            self.messages_published[topic] += 1
-            self.messages_digest[topic].update(message.encode('utf-8'))
-            msg_id += 1
-            time.sleep(0.1)
+            start_time = dt.datetime.now()
+            end_frame_time = start_time + dt.timedelta(seconds=1)
+            previous_msg_count = 0
+            while end_frame_time < dt.datetime.now():
+                message = "{}:{}".format(topic, str(msg_id))
+                self.psclient.publish(topic, message)
+                self.messages_published[topic] += 1
+                self.messages_digest[topic].update(message.encode('utf-8'))
+                msg_id += 1
+            start_str = encode_datetime(start_time)
+            end_str = encode_datetime(end_frame_time)
+            stat_event = ThroughputStat(start_str, end_str, self.messages_published[topic] - previous_msg_count, topic)
+            self.psclient.publish(STATS__TOPIC, json.dumps(stat_event))
+            previous_msg_count = self.messages_published[topic]
+            
 
 def run_publisher(i, topics, hosts, duration, log_file):
     print("Starting Publisher...")
