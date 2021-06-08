@@ -15,3 +15,17 @@ Simple Pub Sub implementation with ZooKeeper
 
 ### Run the small client Python Script
 Run ```python src/client.py``` from within the root directory of the git repo.
+
+### Useful Commands for Running Testing Tools 
+
+Start a broker at a given address:
+    
+    python src/pubsubBroker.py localhost:3000 apache-zookeeper-3.7.0-bin/conf/zoo.cfg
+
+Run a $n$ consumers for $k$ seconds bulk for testing purposes:
+    
+    python src/consumers.py apache-zookeeper-3.7.0-bin/conf/zoo.cfg n k
+
+Run a $n$ publishers for $k$ seconds for bulk testing purposes:
+    
+    python src/publishers.py apache-zookeeper-3.7.0-bin/conf/zoo.cfg n k
