@@ -530,7 +530,7 @@ def start_broker(zk_config_path, url):
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
-        print("Usage: python src/pubsubBroker.py <configuration_path> <zk_config>") 
+        print("Usage: python src/pubsubBroker.py <broker_addr> <zk_config>") 
         exit(1)
 
     print("Starting PubSub Broker...")
