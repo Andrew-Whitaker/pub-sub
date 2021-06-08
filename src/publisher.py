@@ -2,9 +2,10 @@ import sys
 import threading
 import time
 
-from zk_helpers import get_zookeeper_hosts, makeHostsString
 from pubsubClient import PubSubClient
 from chord_node import *
+from repeating_timer import RepeatingTimer
+from zk_helpers import get_zookeeper_hosts, makeHostsString
 
 class Publisher():
 
@@ -12,11 +13,24 @@ class Publisher():
         self.myID = myID             # ID that it will add to all messages
         self.topics = topics         # List of topic names it will publish to
         self.psclient = psclient     # PubSubClient 
-        self.messages = {}
-        self.messages_published = {}  # List of messages published by this publisher
+        self.time = 0                # Time used for reporting statistics
+        self.messages = {}           # List of messages published by this publisher
+        self.messages_published = {} # Number of messages published
+        self.last_messages_cnt = 0  # 
         self.messages_digest = {}    # Hash digest of the messages published on this topic
 
     def run(self, timeout: int):
+        def report_statistics():
+            for topic in self.topics: 
+                self.time += 1
+                current_total_messages = self.messages_published[topic]
+                m_count = current_total_messages - self.last_messages_cnt
+                message = "{}, {}, {}".format(self.time, m_count, float(current_total_messages)/float(self.time))
+                self.psclient.publish(topic + "-meta-publish", message)
+                self.last_messages_cnt = current_total_messages
+        e = threading.Event()
+        self.timer = RepeatingTimer(e)
+        self.timer.start(1, report_statistics)
         threads = []
         for topic in self.topics:
             self.messages[topic] = []
@@ -26,6 +40,7 @@ class Publisher():
             topic_thread.start()
             threads.append(topic_thread)
         [t.join() for t in threads]
+        self.timer.stop()
         return
 
     def get_logs(self):
