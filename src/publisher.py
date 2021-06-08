@@ -10,9 +10,6 @@ from stats import *
 from repeating_timer import RepeatingTimer
 from zk_helpers import get_zookeeper_hosts, makeHostsString
 
-STATS_TIME_FRAME = 1 # seconds
-STATS_TOPIC = "SYSTEM_STATS"
-
 class Publisher():
 
     def __init__(self, myID: int, topics, psclient: PubSubClient) -> None:
@@ -33,7 +30,7 @@ class Publisher():
                 start_str = encode_datetime(timestamp - dt.timedelta(seconds=1))
                 end_str = encode_datetime(timestamp)
                 stat_event = ThroughputStat(start_str, end_str, msg_count, topic)
-                self.psclient.publish(STATS_TOPIC, json.dumps(stat_event))
+                self.psclient.publish(STATS_TOPIC, json.dumps(stat_event, cls=StatEncoder))
                 self.last_messages_cnt[topic] = current_total_messages
         e = threading.Event()
         self.timer = RepeatingTimer(e)
@@ -42,6 +39,7 @@ class Publisher():
         for topic in self.topics:
             self.messages[topic] = []
             self.messages_published[topic] = 0
+            self.last_messages_cnt[topic] = 0
             self.messages_digest[topic] = hashlib.sha256()
             topic_thread = threading.Thread(target=self.generate_events, args=(topic, timeout), daemon=True)
             topic_thread.start()
