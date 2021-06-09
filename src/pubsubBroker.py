@@ -1,6 +1,7 @@
 import threading, queue
 import sys, os, time
 import logging
+from requests import get
 from xmlrpc.server import SimpleXMLRPCServer
 from xmlrpc.server import SimpleXMLRPCRequestHandler
 from socketserver import ThreadingMixIn
@@ -490,16 +491,16 @@ class PubSubBroker:
             # redirect log output of all processes to a file and do "tail -f"
 
 
-def start_broker(zk_config_path, url):
-    ip_addr = url.split(":")[0]
-    port = int(url.split(":")[1])
+def start_broker(zk_config_path, chord_url, server_url):
+    ip_addr = server_url.split(":")[0]
+    port = int(server_url.split(":")[1])
 
     # Load up the Supporting Zookeeper Configuration
     zk_hosts = get_zookeeper_hosts(zk_config_path)
 
     # Create the Broker and Spin up its RPC server
     rpc_server = threadedXMLRPCServer((ip_addr, port), requestHandler=RequestHandler)
-    broker = PubSubBroker(url, zk_hosts)
+    broker = PubSubBroker(chord_url, zk_hosts)
 
     # Register all functions in the Broker's Public API
     rpc_server.register_introspection_functions()
@@ -537,5 +538,19 @@ if __name__ == "__main__":
     broker_address = sys.argv[1]
     zk_config_path = sys.argv[2]
 
+    # 
+    if 'localhost' in broker_address:
+        public_address = broker_address
+        print("Using provided localhost address: {}".format(broker_address))
+    elif '0.0.0.0' in broker_address:
+        public_ip = get('https://api.ipify.org').text
+        port = broker_address.split(':')[1]
+        public_address = public_ip + ':' + port
+        print("Finding public address to use for clients: {}".format(broker_address))
+    else:
+        public_address = broker_address
+        print("Boy! I don't know what you're doing with that address, {}. I sure hope it's right!".format(broker_address))
+
+
     # Display the loaded configuration
-    start_broker(zk_config_path, broker_address)
+    start_broker(zk_config_path, public_address, broker_address)
