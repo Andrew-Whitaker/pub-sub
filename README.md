@@ -16,6 +16,12 @@ Simple Pub Sub implementation with ZooKeeper
 ### Run the small client Python Script
 Run ```python src/client.py``` from within the root directory of the git repo.
 
+### Running REPL against Remote Targets
+
+Pass the IPs of all known Zookeepers to the REPL like so:
+
+    python src/client_repl.py 3.84.39.154
+
 ### Useful Commands for Running Testing Tools 
 
 Start a broker at a given address:

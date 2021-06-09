@@ -220,9 +220,8 @@ class GetQueue:
 # ========= END REPL AST =========
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Usage: python src/client_repl.py <zk_config>") 
+    if len(sys.argv) < 2:
+        print("Usage: python src/client_repl.py <host1> <host2> ...") 
         exit(1)
-    zk_config_path = sys.argv[1]
-    zk_hosts = get_zookeeper_hosts(zk_config_path)
+    zk_hosts = sys.argv[1:]
     main(zk_hosts)

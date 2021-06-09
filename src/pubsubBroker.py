@@ -491,12 +491,9 @@ class PubSubBroker:
             # redirect log output of all processes to a file and do "tail -f"
 
 
-def start_broker(zk_config_path, chord_url, server_url):
+def start_broker(zk_hosts, chord_url, server_url):
     ip_addr = server_url.split(":")[0]
     port = int(server_url.split(":")[1])
-
-    # Load up the Supporting Zookeeper Configuration
-    zk_hosts = get_zookeeper_hosts(zk_config_path)
 
     # Create the Broker and Spin up its RPC server
     rpc_server = threadedXMLRPCServer((ip_addr, port), requestHandler=RequestHandler)
@@ -530,15 +527,14 @@ def start_broker(zk_config_path, chord_url, server_url):
     cli_thread.join()
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("Usage: python src/pubsubBroker.py <broker_addr> <zk_config>") 
+    if len(sys.argv) < 3:
+        print("Usage: python src/pubsubBroker.py <broker_addr> <zk_host1> <zk_host2>...") 
         exit(1)
 
     print("Starting PubSub Broker...")
     broker_address = sys.argv[1]
-    zk_config_path = sys.argv[2]
+    zk_hosts = sys.argv[2:]
 
-    # 
     if 'localhost' in broker_address:
         public_address = broker_address
         print("Using provided localhost address: {}".format(broker_address))
@@ -553,4 +549,4 @@ if __name__ == "__main__":
 
 
     # Display the loaded configuration
-    start_broker(zk_config_path, public_address, broker_address)
+    start_broker(zk_hosts, public_address, broker_address)
