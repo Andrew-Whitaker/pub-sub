@@ -11,7 +11,7 @@ from multiprocessing import Process
 def valid_duration_str(d):
     return d.replace('.','',1).isdigit()
 
-def run_producers(procs, hosts, count, duration):
+def run_producers(procs, hosts, count, duration, topics):
     for i in range(0, int(count)):
         topics = ["a{}".format(i)]
         pubProcess = Process(target=run_publisher, args=(i, topics, hosts, duration, "logs/pubs/{}.txt".format(i)))

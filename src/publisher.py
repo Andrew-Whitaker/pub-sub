@@ -89,15 +89,15 @@ class Publisher():
             if elapsed > timeout:
                 break
 
-def run_publisher(i, topics, hosts, duration, log_file):
+def run_publisher(i, topics, hosts, duration):
     print("Starting Publisher...")
     pubs = Publisher(i, topics, PubSubClient(hosts))
     pubs.run(duration)
-    if log_file is None:
-        print(pubs.get_logs())
-    else:
-        with open(log_file, "w") as lf:
-            lf.write(pubs.get_logs())
+    # if log_file is None:
+    #     print(pubs.get_logs())
+    # else:
+    #     with open(log_file, "w") as lf:
+    #         lf.write(pubs.get_logs())
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:

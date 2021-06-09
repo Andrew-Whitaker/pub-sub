@@ -1,21 +1,31 @@
 import sys
+import time
+from multiprocessing import Process
+from publisher import run_publisher
+from stats import *
 
-from pub_sub_scale_test import run_producers, valid_duration_str
-from zk_helpers import get_zookeeper_hosts
+def run_producers(procs, count: int, duration, hosts, topics):
+    for i in range(0, count):
+        pubProcess = Process(target=run_publisher, args=(i, topics, hosts, duration))
+        procs.append(pubProcess)
+        pubProcess.start()
 
 if __name__ == '__main__':
     if len(sys.argv) < 4:
-        print("Usage: python src/publishers.py <no. pubs> <duration (s)> <zk hosts...>") 
+        print("Usage: python src/publishers.py <no. pubs> <duration (s)> <zk hosts...> <topics...>") 
         exit(1)
 
-    count = sys.argv[1]
-    duration = sys.argv[2]
-    hosts = sys.argv[3:]
-
-    if not count.isdigit() or not valid_duration_str(duration):
-        print("Usage: python src/publishers.py <no. pubs> <duration (s)> <zk hosts...>")
-        exit(1)
+    count = int(sys.argv[1])
+    duration = float(sys.argv[2])
+    hosts = []
+    topics = []
+    for i in range(3, len(sys.argv)):
+        arg = sys.argv[i]
+        if ":" in arg:
+            hosts.append(arg)
+        else:
+            topics.append(arg)
 
     procs = []
     duration = float(duration)
-    run_producers(procs, hosts, count, duration)
+    run_producers(procs, count, duration, hosts, topics)

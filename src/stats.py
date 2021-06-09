@@ -1,6 +1,7 @@
 import json
 from json import JSONEncoder
 import datetime as dt
+import time
 
 from pubsubClient import PubSubClient
 
@@ -69,6 +70,7 @@ def run_stats_collection(simulation_start: dt.datetime, duration: int, psclient:
             stat_event = json.loads(msg, object_hook=StatDecoder)
             event_log.add_event(stat_event)
             msg_id += 1
+        time.sleep(0.5)
 
     event_log.print_report()
 
