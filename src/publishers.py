@@ -11,7 +11,7 @@ def run_producers(procs, count: int, duration, hosts, topics):
         pubProcess.start()
 
 if __name__ == '__main__':
-    if len(sys.argv) < 4:
+    if len(sys.argv) < 5:
         print("Usage: python src/publishers.py <no. pubs> <duration (s)> <zk hosts...> <topics...>") 
         exit(1)
 

@@ -22,7 +22,7 @@ if __name__ == "__main__":
 
     duration = float(duration)
 
-    simulation_start_time = dt.datetime.now()
+    simulation_start_time = dt.datetime.utcnow()
     run_stats_collection(simulation_start_time, duration * 1.5, PubSubClient(zk_hosts))
 
     print("Done. Stream integrity was maintained.")

@@ -24,7 +24,7 @@ class Publisher():
     def run(self, timeout: int):
         def report_statistics():
             for topic in self.topics: 
-                timestamp = dt.datetime.now()
+                timestamp = dt.datetime.utcnow()
                 current_total_messages = self.messages_published[topic]
                 msg_count = current_total_messages - self.last_messages_cnt[topic]
                 start_str = encode_datetime(timestamp - dt.timedelta(seconds=1))

@@ -64,7 +64,7 @@ def run_stats_collection(simulation_start: dt.datetime, duration: int, psclient:
     simulation_start = simulation_start.replace(microsecond=0)
     end_time = simulation_start + dt.timedelta(seconds=duration)
     event_log = TopicEventLog(simulation_start)
-    while dt.datetime.now() < end_time:
+    while dt.datetime.utcnow() < end_time:
         messages = psclient.consume(STATS_TOPIC, msg_id)
         for msg in messages:
             stat_event = json.loads(msg, object_hook=StatDecoder)
