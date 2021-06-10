@@ -1,15 +1,25 @@
 import threading 
 
 def consuming_enqueue(topic, client, message, index):
+    topic.lock.acquire()
     next_expected = topic.next_index()
     if index < next_expected:
+        topic.lock.release()
         return
     elif index > next_expected:
-        messages = client.broker.consume(topic.name, next_expected)
-        for m in messages:
-            topic.publish(m)
+        try:
+            messages = client.broker.consume(topic.name, next_expected)
+            for m in messages:
+                topic.messages.append(m)
+        except e:
+            topic.lock.release()
+            return
+        topic.lock.release()
+        return
     else:
-        topic.publish(message)    
+        topic.messages.append(message)
+        topic.lock.release()
+        return
 
 class Topic: 
     def __init__(self, name):
