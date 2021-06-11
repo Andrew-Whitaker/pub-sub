@@ -1,12 +1,19 @@
 import sys
 import time
+from requests import get
 from multiprocessing import Process
 from publisher import run_publisher
 from stats import *
 
 def run_producers(procs, count: int, duration, hosts, topics):
+
+    # Get unique IDs for the producers
+    public_ip = get('https://api.ipify.org').text
+    addr_part = public_ip.split('.')[1]
+
     for i in range(0, count):
-        pubProcess = Process(target=run_publisher, args=(i, topics, hosts, duration))
+        id = addr_part + str(i)
+        pubProcess = Process(target=run_publisher, args=(id, topics, hosts, duration))
         procs.append(pubProcess)
         pubProcess.start()
 

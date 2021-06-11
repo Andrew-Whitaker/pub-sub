@@ -12,7 +12,7 @@ from zk_helpers import get_zookeeper_hosts, makeHostsString
 
 class Publisher():
 
-    def __init__(self, myID: int, topics, psclient: PubSubClient) -> None:
+    def __init__(self, myID: str, topics, psclient: PubSubClient) -> None:
         self.myID = myID             # ID that it will add to all messages
         self.topics = topics         # List of topic names it will publish to
         self.psclient = psclient     # PubSubClient 
@@ -78,7 +78,7 @@ class Publisher():
         time_stamp = 0  
         while True:
             start = time.time()
-            message = "{}:{}".format(topic, str(msg_id))
+            message = "{}:{}-{}".format(topic, self.myID, str(msg_id))
             self.psclient.publish(topic, message)
             self.messages[topic].append(message)
             self.messages_published[topic] += 1
@@ -89,9 +89,9 @@ class Publisher():
             if elapsed > timeout:
                 break
 
-def run_publisher(i, topics, hosts, duration):
+def run_publisher(id, topics, hosts, duration):
     print("Starting Publisher...")
-    pubs = Publisher(i, topics, PubSubClient(hosts))
+    pubs = Publisher(id, topics, PubSubClient(hosts))
     pubs.run(duration)
     # if log_file is None:
     #     print(pubs.get_logs())
