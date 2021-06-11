@@ -311,6 +311,8 @@ class PubSubBroker:
             else: delta_end = cp_start - 1
             view_change = ControlEvent(EventType.VIEW_CHANGE, {SEGMENT: (np_start, delta_end)})
             self.event_queue.put(view_change)
+        else:
+            self.temp_block_segment = (-1, -1)
         # No need to do anything if range is smaller or the same
 
         # Detect if this Broker should respond to changes in its Replica Segment
