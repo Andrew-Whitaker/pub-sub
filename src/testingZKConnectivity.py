@@ -58,7 +58,7 @@ def makeHostsString(hosts):
 if __name__ == "__main__":
    
     # Create array of host addresses
-    hosts = ['127.0.0.1:2181']
+    hosts = ['localhost:2181']
 
     # multiple hosts
     #hosts = ['127.0.0.1:2182', '127.0.0.1:2183', '127.0.0.1:2184']
