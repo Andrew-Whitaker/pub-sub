@@ -20,18 +20,18 @@ Run ```python src/client.py``` from within the root directory of the git repo.
 
 Pass the IPs of all known Zookeepers to the REPL like so:
 
-    python src/client_repl.py 3.84.39.154:2181
+    python src/client_repl.py <ZK-Address>:2181
 
 ### Useful Commands for Running Testing Tools 
 
 Start a broker at a given address:
     
-    python src/pubsubBroker.py localhost:3000 3.84.39.154:2181
+    python src/pubsubBroker.py localhost:3000 <ZK-Address>:2181
 
 Run a $n$ consumers for $k$ seconds bulk for testing purposes:
     
-    python src/consumers.py n k 3.84.39.154:2181
+    python src/consumers.py n k <ZK-Address>:2181
 
 Run a $n$ publishers for $k$ seconds for bulk testing purposes:
     
-    python src/publishers.py n k 3.84.39.154:2181 <topic-name ...>
+    python src/publishers.py n k <ZK-Address>:2181 <topic-name ...>
