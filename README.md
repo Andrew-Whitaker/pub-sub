@@ -34,4 +34,4 @@ Run a $n$ consumers for $k$ seconds bulk for testing purposes:
 
 Run a $n$ publishers for $k$ seconds for bulk testing purposes:
     
-    python src/publishers.py n k 3.84.39.154:2181
+    python src/publishers.py n k 3.84.39.154:2181 <topic-name ...>
